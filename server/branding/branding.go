@@ -1,0 +1,18 @@
+package branding
+
+import (
+	"fmt"
+	"time"
+)
+
+var Name = "Next Terminal"
+var Copyright = fmt.Sprintf("Copyright © 2020-%d dushixiang, All Rights Reserved.", time.Now().Year())
+var Banner = `    ___       ___   
+   /\__\     /\  \  
+  /:| _|_    \:\  \ 
+ /::|/\__\   /::\__\
+ \/|::/  /  /:/\/__/
+   |:/  /   \/__/   
+   \/__/            `
+var Version = `v1.4.0`
+var Hi = Banner + Version

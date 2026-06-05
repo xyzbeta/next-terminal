@@ -1,0 +1,36 @@
+yarn.lock
+web/build
+web/node_modules
+web/package-lock.json
+web/.env.development.local
+web/.env.production.local
+*.log
+*.db
+*.zip
+.DS_Store
+.eslintcache
+.env
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# IDE
+.idea
+.vscode
+
+# vim
+*.swp
+
+# project
+/data/
+/logs/
+.claude/
+/server/resource/static/
+/server/resource/*.html
+/server/resource/*.json
+/server/resource/*.ico
+*.tar
