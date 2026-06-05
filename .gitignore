@@ -34,3 +34,5 @@ web/.env.production.local
 /server/resource/*.json
 /server/resource/*.ico
 *.tar
+next-terminal
+*.tar.gz
