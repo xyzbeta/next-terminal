@@ -30,6 +30,8 @@ const Term = () => {
     const [box, setBox] = useState({width: window.innerWidth, height: window.innerHeight});
 
     let [commands, setCommands] = useState([]);
+    let [latency, setLatency] = useState(null); // 延迟 ms，null = 尚未测量
+    let [aliveStatus, setAliveStatus] = useState('connecting'); // connecting | alive | slow | offline
 
     let [term, setTerm] = useState();
     let [fitAddon, setFitAddon] = useState();
@@ -154,10 +156,25 @@ const Term = () => {
         let webSocket = new WebSocket(`${wsServer}/sessions/${sessionId}/ssh?${paramStr}`);
 
         let pingInterval;
+        let pingSentAt = 0;
+        let lastActivity = Date.now();
+
+        // 存活检查：8s 无任何消息则标记 offline（4 次 ping 无响应）
+        const offlineTimer = setInterval(() => {
+            if (Date.now() - lastActivity > 8000) {
+                setAliveStatus('offline');
+            }
+        }, 3000);
+
+        const sendPing = () => {
+            pingSentAt = Date.now();
+            webSocket.send(new Message(Message.Ping, "").toString());
+        };
+
         webSocket.onopen = (e => {
-            pingInterval = setInterval(() => {
-                webSocket.send(new Message(Message.Ping, "").toString());
-            }, 10000);
+            setAliveStatus('connecting');
+            sendPing(); // 连接后立即测一次延迟
+            pingInterval = setInterval(sendPing, 2000); // 每 2s 刷新
             xtermScrollPretty();
         });
 
@@ -195,9 +212,9 @@ const Term = () => {
         webSocket.onclose = (e) => {
             console.log(`e`, e);
             term.writeln("connection is closed.");
-            if (pingInterval) {
-                clearInterval(pingInterval);
-            }
+            setAliveStatus('offline');
+            clearInterval(pingInterval);
+            clearInterval(offlineTimer);
         }
 
         term.onData(data => {
@@ -214,7 +231,16 @@ const Term = () => {
                     updateSessionStatus(sessionId);
                     getCommands();
                     break;
+                case Message.Ping:
+                    if (pingSentAt > 0) {
+                        const rtt = Date.now() - pingSentAt;
+                        setLatency(rtt);
+                        setAliveStatus(rtt < 200 ? 'alive' : 'slow');
+                        lastActivity = Date.now();
+                    }
+                    break;
                 case Message.Data:
+                    lastActivity = Date.now();
                     pendingData += msg['content'];
                     scheduleFlush();
                     break;
@@ -300,6 +326,20 @@ const Term = () => {
                 width: box.width,
                 backgroundColor: '#1b1b1b'
             }}/>
+
+            {/* 存活指示器 */}
+            <div style={{
+                position: 'absolute', bottom: 15, right: 15, zIndex: 999,
+                backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 4, padding: '3px 8px',
+                color: aliveStatus === 'alive' ? '#52c41a' : aliveStatus === 'slow' ? '#faad14' : aliveStatus === 'offline' ? '#ff4d4f' : '#999',
+                fontSize: 12, fontFamily: 'monospace',
+                pointerEvents: 'none', userSelect: 'none'
+            }}>
+                {aliveStatus === 'alive' && latency !== null && `● ${latency}ms`}
+                {aliveStatus === 'slow' && latency !== null && `● ${latency}ms`}
+                {aliveStatus === 'offline' && '● 离线'}
+                {aliveStatus === 'connecting' && '● 连接中'}
+            </div>
 
             <Draggable>
                 <Affix style={{position: 'absolute', top: 50, right: 50, zIndex: enterBtnZIndex}}>

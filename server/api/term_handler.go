@@ -153,7 +153,7 @@ func (r *TermHandler) WindowChange(h int, w int) error {
 }
 
 func (r *TermHandler) SendRequest() error {
-	_, _, err := r.nextTerminal.SshClient.Conn.SendRequest("helloworld1024@foxmail.com", true, nil)
+	_, _, err := r.nextTerminal.SshClient.Conn.SendRequest("keepalive@openssh.com", true, nil)
 	return err
 }
 
