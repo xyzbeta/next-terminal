@@ -11,6 +11,7 @@ import (
 	"next-terminal/server/common/maps"
 	"next-terminal/server/common/nt"
 	"next-terminal/server/global/session"
+	"next-terminal/server/log"
 	"next-terminal/server/model"
 	"next-terminal/server/repository"
 	"next-terminal/server/service"
@@ -338,6 +339,7 @@ func (api SessionApi) SessionDownloadEndpoint(c echo.Context) error {
 
 		dstFile, err := nextSession.NextTerminal.SftpClient.Open(file)
 		if err != nil {
+			log.Warn("图片预览 SFTP 打开失败", log.String("sessionId", sessionId), log.String("file", file), log.NamedError("err", err))
 			return err
 		}
 
@@ -396,8 +398,15 @@ func (api SessionApi) SessionPreviewEndpoint(c echo.Context) error {
 			}
 			nextSession.NextTerminal.SftpClient = sftpClient
 		}
+		// 相对路径解析：通过 SFTP RealPath 获取实际工作目录
+		if !strings.HasPrefix(file, "/") {
+			if homeDir, err := nextSession.NextTerminal.SftpClient.RealPath("."); err == nil {
+				file = path.Join(homeDir, file)
+			}
+		}
 		dstFile, err := nextSession.NextTerminal.SftpClient.Open(file)
 		if err != nil {
+			log.Warn("图片预览 SFTP 打开失败", log.String("sessionId", sessionId), log.String("file", file), log.NamedError("err", err))
 			return err
 		}
 		defer dstFile.Close()
@@ -419,7 +428,24 @@ func (api SessionApi) SessionLsEndpoint(c echo.Context) error {
 		return err
 	}
 
-	remoteDir := c.FormValue("dir")
+	// partial: 用户输入的部分路径，如 "ops/di" → remoteDir="ops/", namePrefix="di"
+	partial := c.FormValue("partial")
+	if partial == "" {
+		partial = c.FormValue("dir") // 兼容旧调用
+	}
+	namePrefix := ""
+	remoteDir := "."
+	if partial != "" {
+		lastSlash := strings.LastIndex(partial, "/")
+		if lastSlash >= 0 {
+			remoteDir = partial[:lastSlash+1]
+			namePrefix = partial[lastSlash+1:]
+		} else if strings.HasPrefix(partial, "/") {
+			remoteDir = partial
+		} else {
+			namePrefix = partial
+		}
+	}
 	if "ssh" == s.Protocol {
 		nextSession := session.GlobalSessionManager.GetById(sessionId)
 		if nextSession == nil {
@@ -434,13 +460,24 @@ func (api SessionApi) SessionLsEndpoint(c echo.Context) error {
 			nextSession.NextTerminal.SftpClient = sftpClient
 		}
 
+		// 相对路径解析：通过 SFTP RealPath 获取实际工作目录
+		if !strings.HasPrefix(remoteDir, "/") {
+			if homeDir, err := nextSession.NextTerminal.SftpClient.RealPath("."); err == nil {
+				remoteDir = path.Join(homeDir, remoteDir)
+			}
+		}
+
 		fileInfos, err := nextSession.NextTerminal.SftpClient.ReadDir(remoteDir)
 		if err != nil {
+			log.Warn("目录列表 SFTP 读取失败", log.String("sessionId", sessionId), log.String("dir", remoteDir), log.NamedError("err", err))
 			return err
 		}
 
 		var files = make([]service.File, 0)
 		for i := range fileInfos {
+			if namePrefix != "" && !strings.HasPrefix(fileInfos[i].Name(), namePrefix) {
+				continue
+			}
 
 			file := service.File{
 				Name:    fileInfos[i].Name(),

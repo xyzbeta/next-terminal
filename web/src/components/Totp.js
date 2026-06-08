@@ -96,7 +96,6 @@ const Totp = () => {
                                                 }
                                             },
                                             onCancel() {
-                                                console.log('Cancel');
                                             },
                                         })
                                     }}>

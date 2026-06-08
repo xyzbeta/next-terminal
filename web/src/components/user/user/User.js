@@ -153,7 +153,7 @@ const User = () => {
                     await api.resetTotp(selectedRowKeys.join(','));
                     resolve();
                     message.success("重置成功");
-                }).catch(() => console.log('Oops errors!'))
+                }).catch(() => console.error('Oops errors!'))
             },
         });
     }
@@ -174,7 +174,7 @@ const User = () => {
                     await api.changePassword(selectedRowKeys.join(','), password);
                     resolve();
                     message.success("修改成功");
-                }).catch(() => console.log('Oops errors!'))
+                }).catch(() => console.error('Oops errors!'))
             },
         });
     }

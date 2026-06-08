@@ -64,7 +64,6 @@ const JobModal = ({
                 form
                     .validateFields()
                     .then(async values => {
-                        console.log(values)
                         if (values['resourceIds']) {
                             values['resourceIds'] = values['resourceIds'].join(',');
                         }

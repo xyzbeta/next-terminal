@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect} from 'react';
 import {Checkbox, Form, Input, InputNumber, Modal, Radio} from "antd";
 import DragWeekTime from "../../dd/drag-weektime/DragWeekTime";
 import loginPolicyApi from "../../api/login-policy";

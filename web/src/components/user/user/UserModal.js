@@ -69,7 +69,6 @@ const UserModal = ({visible, handleOk, handleCancel, confirmLoading, id}) => {
 
                 <Form.Item label="类型" name='type' rules={[{required: true, message: '请选择用户角色'}]}>
                     <Radio.Group onChange={(e) => {
-                        console.log(e.target.value);
                         setUserType(e.target.value);
                     }}>
                         <Radio value={'user'}>普通用户</Radio>

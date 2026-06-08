@@ -783,7 +783,6 @@ Windows需要对远程应用程序的名称使用特殊的符号。
                         if (copied === true) {
                             values['id'] = undefined;
                         }
-                        console.log(values['tags'], arrays.isEmpty(values['tags']))
                         if (!arrays.isEmpty(values['tags'])) {
                             values.tags = values['tags'].join(',');
                         } else {

@@ -21,10 +21,14 @@ Copyright © 2020-2026 dushixiang, All Rights Reserved.
 
 | 类别 | 内容 | 说明 |
 |------|------|------|
-| 新功能 | 终端图片预览 | 输入 `@文件路径` 回车弹窗预览远程主机图片，支持 Tab 补全、绝对/相对路径 |
-| 新功能 | 终端快捷命令入口 | 工具栏新增闪电(⚡)按钮，展示已支持的命令列表，后续快捷命令可在此扩展 |
+| 新功能 | 浮动文件选择器 | `Ctrl+Shift+F` 或点击闪电(⚡)按钮打开，支持 Tab 补全、↓↑ 导航、Enter 预览远程主机图片，相对路径由后端通过 SFTP RealPath 自动解析 |
+| 新功能 | 终端快捷命令入口 | 工具栏闪电(⚡)按钮，点击展开命令菜单，支持点击触发，后续快捷命令可在此扩展 |
 | 新功能 | SSH 终端存活指示器 | 右下角实时显示链路延迟（● XXms），2s 刷新，8s 无响应标记离线 |
+| 优化 | 图片预览功能重构 | 移除脆弱的 `@` 输入拦截 + 前端 `cwdRef` 推断，改为 DOM 层浮动选择器 + 后端路径解析，彻底解决输入冲突和路径错误问题 |
 | 优化 | Ping 保活机制优化 | 自定义请求改为标准 `keepalive@openssh.com`，消除部分 SSH 服务器超时问题 |
+| 优化 | 预览/ls 端点路径解析 | 相对路径通过 SFTP `RealPath(".")` 解析，不再依赖前端 `cd` 命令正则追踪 |
+| 优化 | 文件选择器搜索 | 支持部分输入实时过滤，AbortController 防止旧结果覆盖，固定高度列表 + 键盘导航自动滚屏 |
+| 优化 | 代码质量 | 移除 16 处 `console.log` 调试残留，修复 5 处 ESLint 错误，`let`→`const`（17 处），提取公共函数消除重复逻辑 |
 
 ## v1.4.1 更新内容
 
@@ -134,7 +138,7 @@ services:
 
   next-terminal:
     container_name: next-terminal
-    image: next-terminal:v1.4.0
+    image: next-terminal:v1.4.2
     network_mode: host
     environment:
       DB: sqlite

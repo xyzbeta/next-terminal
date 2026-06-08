@@ -44,7 +44,6 @@ const GuacdPlayback = () => {
     }, [sessionId]);
 
     const onTunnelStateChange = (state) => {
-        console.log('onTunnelStateChange', state);
         switch (state) {
             case Guacamole.Tunnel.State.OPEN:
                 handlePlayPause();
@@ -177,7 +176,6 @@ const GuacdPlayback = () => {
     const handleProgressChange = (value) => {
         // Request seek
         recording.seek(value, () => {
-            console.log('complete');
         });
     }
 

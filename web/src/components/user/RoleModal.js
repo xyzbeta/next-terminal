@@ -78,7 +78,6 @@ const RoleModal = ({
                 }
             }
         }
-        console.log(menus)
         setRoleMenus(checkedKeysValue);
         form.setFieldsValue({
             menus: Array.from(menus).map(item => JSON.parse(item))

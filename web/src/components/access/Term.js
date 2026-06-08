@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {useSearchParams} from "react-router-dom";
 import {Terminal} from "xterm";
 import {FitAddon} from "xterm-addon-fit";
@@ -29,23 +29,97 @@ const Term = () => {
     const isWorker = searchParams.get('isWorker');
     const [box, setBox] = useState({width: window.innerWidth, height: window.innerHeight});
 
-    let [commands, setCommands] = useState([]);
-    let [latency, setLatency] = useState(null); // 延迟 ms，null = 尚未测量
-    let [aliveStatus, setAliveStatus] = useState('connecting'); // connecting | alive | slow | offline
-    let cwdRef = useRef(''); // 跟踪 cd 命令，保存终端当前工作目录
-    let [previewVisible, setPreviewVisible] = useState(false);
-    let [previewUrl, setPreviewUrl] = useState('');
-    let [previewTitle, setPreviewTitle] = useState('');
+    const [commands, setCommands] = useState([]);
+    const [latency, setLatency] = useState(null); // 延迟 ms，null = 尚未测量
+    const [aliveStatus, setAliveStatus] = useState('connecting'); // connecting | alive | slow | offline
+    const [previewVisible, setPreviewVisible] = useState(false);
+    const [previewUrl, setPreviewUrl] = useState('');
+    const [previewTitle, setPreviewTitle] = useState('');
 
-    let [term, setTerm] = useState();
-    let [fitAddon, setFitAddon] = useState();
-    let [websocket, setWebsocket] = useState();
-    let [session, setSession] = useState({});
+    const [term, setTerm] = useState();
+    const [fitAddon, setFitAddon] = useState();
+    const [websocket, setWebsocket] = useState();
+    const [session, setSession] = useState({});
 
-    let [fileSystemVisible, setFileSystemVisible] = useState(false);
-    let [statsVisible, setStatsVisible] = useState(false);
-    let [enterBtnZIndex, setEnterBtnZIndex] = useState(999);
-    let [queryInterval, setQueryInterval] = useState(5000);
+    const [fileSystemVisible, setFileSystemVisible] = useState(false);
+    const [statsVisible, setStatsVisible] = useState(false);
+    const [enterBtnZIndex, setEnterBtnZIndex] = useState(999);
+    const [queryInterval, setQueryInterval] = useState(5000);
+    const [shortcutPopoverOpen, setShortcutPopoverOpen] = useState(false);
+
+    // 文件选择器状态（必须在组件顶层，不能放在 init 内部——React Hooks 规则）
+    const [pickerVisible, setPickerVisible] = useState(false);
+    const [pickerInput, setPickerInput] = useState('');
+    const [pickerResults, setPickerResults] = useState([]);
+    const [pickerIndex, setPickerIndex] = useState(0);
+    const pickerInputRef = useRef(null);
+    const pickerTimerRef = useRef(null);
+    const pickerListRef = useRef(null);
+    const sessionIdRef = useRef(''); // init 中设置，供组件层函数使用
+
+    const lsAbortRef = useRef(null);
+
+    const fetchPickerResults = (partial) => {
+        // 取消上一次未完成的请求，防止旧结果覆盖新结果
+        if (lsAbortRef.current) lsAbortRef.current.abort();
+        lsAbortRef.current = new AbortController();
+        const token = getToken();
+        const lsUrl = `${server}/sessions/${sessionIdRef.current}/ls?X-Auth-Token=${token}`;
+        fetch(lsUrl, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `partial=${encodeURIComponent(partial)}`,
+            signal: lsAbortRef.current.signal
+        })
+        .then(r => r.json())
+        .then(result => {
+            if (result.code === 1) setPickerResults(result.data || []);
+            else setPickerResults([]);
+        })
+        .catch(err => {
+            if (err.name !== 'AbortError') setPickerResults([]);
+        });
+    };
+
+    const doPreview = (filePath) => {
+        const token = getToken();
+        const url = `${server}/sessions/${sessionIdRef.current}/preview?file=${encodeURIComponent(filePath)}&X-Auth-Token=${token}&t=${Date.now()}`;
+        setPreviewUrl(url);
+        setPreviewTitle(filePath);
+        setPreviewVisible(true);
+    };
+
+    const formatSize = (bytes) => {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / 1048576).toFixed(1) + ' MB';
+    };
+
+    // 打开文件选择器（键盘快捷键和快捷命令菜单共用）
+    // 从 pickerInput + 文件对象拼出完整路径
+    const resolvePickerPath = (input, file) => {
+        const ls = input.lastIndexOf('/');
+        const dp = ls >= 0 ? input.substring(0, ls + 1) : '';
+        return dp + file.name;
+    };
+
+    const openFilePicker = () => {
+        if (!sessionIdRef.current) return; // 会话未就绪
+        setPickerVisible(true);
+        setPickerInput('');
+        setPickerResults([]);
+        setPickerIndex(0);
+        fetchPickerResults('');
+    };
+
+    // 键盘上下导航时自动滚动列表，保持选中项可见
+    useEffect(() => {
+        if (!pickerVisible || !pickerListRef.current) return;
+        const items = pickerListRef.current.children;
+        if (pickerIndex < items.length) {
+            items[pickerIndex].scrollIntoView({ block: 'nearest' });
+        }
+    }, [pickerIndex, pickerVisible]);
 
     const createSession = async (assetsId) => {
         let result = await request.post(`/sessions?assetId=${assetsId}&mode=native`);
@@ -99,7 +173,7 @@ const Term = () => {
     };
 
     const init = async (assetId) => {
-        let term = new Terminal({
+        const xterm = new Terminal({
             fontFamily: 'monaco, Consolas, "Lucida Console", monospace',
             fontSize: 15,
             theme: {
@@ -107,26 +181,26 @@ const Term = () => {
             },
         });
         let elementTerm = document.getElementById('terminal');
-        term.open(elementTerm);
+        xterm.open(elementTerm);
         const fitAddon = new FitAddon();
-        term.loadAddon(fitAddon);
+        xterm.loadAddon(fitAddon);
         fitAddon.fit();
-        term.focus();
+        xterm.focus();
 
         if (!assetId) {
-            writeErrorMessage(term, `参数缺失，请关闭此页面后重新打开。`)
+            writeErrorMessage(xterm, `参数缺失，请关闭此页面后重新打开。`)
             return;
         }
 
-        let [session, errMsg] = await createSession(assetId);
+        const [session, errMsg] = await createSession(assetId);
         if (!session) {
-            writeErrorMessage(term, `创建会话失败，${errMsg}`)
+            writeErrorMessage(xterm, `创建会话失败，${errMsg}`)
             return;
         }
 
         let sessionId = session['id'];
 
-        term.writeln('trying to connect to the server ...');
+        xterm.writeln('trying to connect to the server ...');
 
         document.body.oncopy = (event) => {
             event.preventDefault();
@@ -150,8 +224,8 @@ const Term = () => {
 
         let token = getToken();
         let params = {
-            'cols': term.cols,
-            'rows': term.rows,
+            'cols': xterm.cols,
+            'rows': xterm.rows,
             'X-Auth-Token': token
         };
 
@@ -189,7 +263,7 @@ const Term = () => {
 
         const flushData = () => {
             if (pendingData.length > 0) {
-                term.write(pendingData);
+                xterm.write(pendingData);
                 pendingData = '';
             }
             rafId = null;
@@ -210,141 +284,33 @@ const Term = () => {
         };
 
         webSocket.onerror = (e) => {
-            writeErrorMessage(term, `websocket error ${e.data}`)
+            writeErrorMessage(xterm, `websocket error ${e.data}`)
         }
 
         webSocket.onclose = (e) => {
-            console.log(`e`, e);
-            term.writeln("connection is closed.");
+            xterm.writeln("connection is closed.");
             setAliveStatus('offline');
             clearInterval(pingInterval);
             clearInterval(offlineTimer);
+            // 清理全局事件处理器
+            document.body.oncopy = null;
+            document.body.onpaste = null;
         }
 
-        let isAtLineStart = true;
-        let commandBuffer = '';
-        let inCommandMode = false;
-        let normalBuffer = ''; // 跟踪 cd 命令
+        // 将 sessionId 存入 ref，供组件层 picker 函数使用
+        sessionIdRef.current = sessionId;
 
-        const exitCommandMode = () => {
-            inCommandMode = false;
-            commandBuffer = '';
-            term.write('\r\n');
-        };
-
-        const doPreview = (filePath) => {
-            let resolved = filePath;
-            if (filePath.startsWith('./')) {
-                resolved = cwdRef.current + '/' + filePath.slice(2);
-            } else if (filePath.startsWith('.')) {
-                resolved = cwdRef.current + '/' + filePath;
-            } else if (!filePath.startsWith('/') && cwdRef.current) {
-                resolved = cwdRef.current + '/' + filePath;
+        // 键盘快捷键处理：Ctrl+Shift+F 打开文件选择器
+        xterm.attachCustomKeyEventHandler((event) => {
+            if (event.ctrlKey && event.shiftKey && (event.key === 'F' || event.key === 'f')) {
+                event.preventDefault();
+                openFilePicker();
+                return false;
             }
-            const token = getToken();
-            const url = `${server}/sessions/${sessionId}/preview?file=${encodeURI(resolved)}&X-Auth-Token=${token}&t=${Date.now()}`;
-            setPreviewUrl(url);
-            setPreviewTitle(resolved);
-            setPreviewVisible(true);
-        };
+            return true;
+        });
 
-        term.onData(data => {
-            if (inCommandMode) {
-                if (data === '\r') {
-                    const path = commandBuffer.slice(1).trim();
-                    if (path) doPreview(path);
-                    exitCommandMode();
-                    return;
-                }
-                if (data === '\x1b') {
-                    exitCommandMode();
-                    return;
-                }
-                if (data === '\t') {
-                    // Tab 补全
-                    const partial = commandBuffer.slice(1);
-                    const lastSlash = partial.lastIndexOf('/');
-                    let dir = lastSlash >= 0 ? partial.substring(0, lastSlash + 1) : '.';
-                    if (dir.startsWith('.') && cwdRef.current) {
-                        dir = dir === '.' ? cwdRef.current + '/' : cwdRef.current + '/' + dir;
-                    }
-                    const prefix = lastSlash >= 0 ? partial.substring(lastSlash + 1) : partial;
-                    const token = getToken();
-                    const lsUrl = `${server}/sessions/${sessionId}/ls?X-Auth-Token=${token}`;
-                    fetch(lsUrl, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                        body: `dir=${encodeURI(dir)}`
-                    })
-                    .then(r => r.json())
-                    .then(result => {
-                        const files = (result.data || []).map(f => f.name);
-                        const matches = files.filter(f => f.startsWith(prefix));
-                        if (matches.length === 1) {
-                            const completed = matches[0];
-                            const suffix = completed.substring(prefix.length);
-                            commandBuffer += suffix;
-                            term.write(suffix);
-                        } else if (matches.length > 1) {
-                            // 多个匹配，显示提示
-                            term.write('\r\n' + matches.join('  ') + '\r\n');
-                            // 重新回显当前输入
-                            term.write(commandBuffer);
-                        }
-                    })
-                    .catch(() => {});
-                    return;
-                }
-                if (data === '\x7f') {
-                    if (commandBuffer.length > 1) {
-                        commandBuffer = commandBuffer.slice(0, -1);
-                        term.write('\b \b');
-                    } else {
-                        inCommandMode = false;
-                        commandBuffer = '';
-                        term.write('\b \b');
-                        isAtLineStart = true;
-                    }
-                    return;
-                }
-                commandBuffer += data;
-                term.write(data);
-                return;
-            }
-
-            if (data === '\r') {
-                // 检测 cd 命令，跟踪 shell 工作目录
-                const m = normalBuffer.match(/^\s*cd\s+(.+)/);
-                if (m) {
-                    const dir = m[1].trim();
-                    if (dir.startsWith('/')) {
-                        cwdRef.current = dir;
-                    } else if (dir.startsWith('..')) {
-                        // 简化处理：只往上跳一级
-                        const parts = cwdRef.current.split('/');
-                        parts.pop();
-                        cwdRef.current = parts.join('/') || '/';
-                    } else {
-                        cwdRef.current = cwdRef.current ? cwdRef.current + '/' + dir : '/' + dir;
-                    }
-                }
-                normalBuffer = '';
-                isAtLineStart = true;
-            } else if (isAtLineStart && data === '@') {
-                inCommandMode = true;
-                commandBuffer = '@';
-                isAtLineStart = false;
-                term.write('@');
-                return;
-            } else {
-                if (data === '\x7f') {
-                    normalBuffer = normalBuffer.slice(0, -1);
-                } else {
-                    normalBuffer += data;
-                }
-                isAtLineStart = false;
-            }
-
+        xterm.onData(data => {
             if (webSocket !== undefined) {
                 webSocket.send(new Message(Message.Data, data).toString());
             }
@@ -354,7 +320,7 @@ const Term = () => {
             let msg = Message.parse(e.data);
             switch (msg['type']) {
                 case Message.Connected:
-                    term.clear();
+                    xterm.clear();
                     updateSessionStatus(sessionId);
                     getCommands();
                     break;
@@ -377,8 +343,7 @@ const Term = () => {
                         if (rafId) cancelAnimationFrame(rafId);
                         flushData();
                     }
-                    console.log(`服务端通知需要关闭连接`)
-                    term.writeln(`\x1B[1;3;31m${msg['content']}\x1B[0m `);
+                    xterm.writeln(`\x1B[1;3;31m${msg['content']}\x1B[0m `);
                     webSocket.close();
                     break;
                 default:
@@ -387,7 +352,7 @@ const Term = () => {
         }
 
         setSession(session);
-        setTerm(term);
+        setTerm(xterm);
         setFitAddon(fitAddon);
         setWebsocket(webSocket);
     }
@@ -430,23 +395,24 @@ const Term = () => {
         }
     }, [box.width, box.height]);
 
-    const cmdMenuItems = commands.map(item => {
-        return {
-            key: item['id'],
-            label: item['name'],
-        };
-    });
+    const cmdMenuItems = useMemo(() => commands.map(item => ({
+        key: item['id'],
+        label: item['name'],
+    })), [commands]);
 
     const handleCmdMenuClick = (e) => {
-        for (const command of commands) {
-            if (command['id'] === e.key) {
-                writeCommand(command['content']);
-            }
-        }
+        const cmd = commands.find(c => c['id'] === e.key);
+        if (cmd) writeCommand(cmd['content']);
     }
 
     return (
         <div>
+            <style>{`
+                .file-picker-list::-webkit-scrollbar { width: 6px; }
+                .file-picker-list::-webkit-scrollbar-track { background: transparent; }
+                .file-picker-list::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+                .file-picker-list::-webkit-scrollbar-thumb:hover { background: #777; }
+            `}</style>
             <div id='terminal' style={{
                 overflow: 'hidden',
                 height: box.height,
@@ -462,10 +428,7 @@ const Term = () => {
                 fontSize: 12, fontFamily: 'monospace',
                 pointerEvents: 'none', userSelect: 'none'
             }}>
-                {aliveStatus === 'alive' && latency !== null && `● ${latency}ms`}
-                {aliveStatus === 'slow' && latency !== null && `● ${latency}ms`}
-                {aliveStatus === 'offline' && '● 离线'}
-                {aliveStatus === 'connecting' && '● 连接中'}
+                {aliveStatus === 'offline' ? '● 离线' : aliveStatus === 'connecting' ? '● 连接中' : latency !== null ? `● ${latency}ms` : ''}
             </div>
 
             <Draggable>
@@ -498,23 +461,146 @@ const Term = () => {
             <Draggable>
                 <Affix style={{position: 'absolute', top: 100, right: 100, zIndex: enterBtnZIndex}}>
                     <Popover
+                        open={shortcutPopoverOpen}
+                        onOpenChange={setShortcutPopoverOpen}
                         content={
                             <table style={{fontSize: 13}}>
                                 <thead>
-                                    <tr><th style={{padding: '4px 12px', textAlign: 'left'}}>命令</th><th style={{padding: '4px 12px', textAlign: 'left'}}>功能</th></tr>
+                                    <tr><th style={{padding: '4px 12px', textAlign: 'left'}}>快捷键</th><th style={{padding: '4px 12px', textAlign: 'left'}}>功能</th></tr>
                                 </thead>
                                 <tbody>
-                                    <tr><td style={{padding: '4px 12px', fontFamily: 'monospace'}}>@文件路径</td><td style={{padding: '4px 12px'}}>预览远程主机图片</td></tr>
+                                    <tr
+                                        style={{cursor: 'pointer'}}
+                                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+                                        onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                                        onClick={() => {
+                                            setShortcutPopoverOpen(false);
+                                            openFilePicker();
+                                        }}
+                                    >
+                                        <td style={{padding: '4px 12px', fontFamily: 'monospace'}}>Ctrl+Shift+F</td>
+                                        <td style={{padding: '4px 12px'}}>搜索并预览远程文件</td>
+                                    </tr>
                                 </tbody>
                             </table>
                         }
                         title="快捷命令"
                         trigger="click"
                     >
-                        <Button icon={<ThunderboltOutlined/>} onClick={() => setEnterBtnZIndex(999)}/>
+                        <Button icon={<ThunderboltOutlined/>}/>
                     </Popover>
                 </Affix>
             </Draggable>
+
+            {/* 浮动文件选择器 */}
+            {pickerVisible && (
+                <>
+                {/* 半透明遮罩，点击关闭 */}
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 1001,
+                    backgroundColor: 'rgba(0,0,0,0.3)'
+                }} onClick={() => {
+                    if (pickerTimerRef.current) { clearTimeout(pickerTimerRef.current); pickerTimerRef.current = null; }
+                    setPickerVisible(false); focus();
+                }} />
+                <div style={{
+                    position: 'fixed', top: '50%', left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    zIndex: 1002, width: 520,
+                    backgroundColor: '#252526', borderRadius: 8, padding: 12,
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+                    border: '1px solid #444',
+                }}>
+                    <div style={{display: 'flex', alignItems: 'center', marginBottom: 6}}>
+                        <span style={{color: '#ccc', fontSize: 13, fontWeight: 500}}>打开文件</span>
+                        <span style={{color: '#666', fontSize: 11, marginLeft: 'auto'}}>Tab 补全 · ↓↑ 导航 · Enter 打开 · Esc 关闭</span>
+                    </div>
+                    <input
+                        ref={pickerInputRef}
+                        value={pickerInput}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            setPickerInput(val);
+                            setPickerIndex(0);
+                            if (pickerTimerRef.current) clearTimeout(pickerTimerRef.current);
+                            pickerTimerRef.current = setTimeout(() => fetchPickerResults(val), 200);
+                        }}
+                        onKeyDown={(e) => {
+                            const pi = pickerInput, pr = pickerResults, pix = pickerIndex;
+                            if (e.key === 'Escape') {
+                                if (pickerTimerRef.current) { clearTimeout(pickerTimerRef.current); pickerTimerRef.current = null; }
+                                setPickerVisible(false); focus(); return;
+                            }
+                            if (e.key === 'ArrowDown') { e.preventDefault(); setPickerIndex(Math.min(pix + 1, pr.length - 1)); return; }
+                            if (e.key === 'ArrowUp') { e.preventDefault(); setPickerIndex(Math.max(pix - 1, 0)); return; }
+                            if (e.key === 'Tab') {
+                                e.preventDefault();
+                                if (pr.length > 0 && pix < pr.length) {
+                                    const s = pr[pix];
+                                    const comp = resolvePickerPath(pi, s) + (s.isDir ? '/' : '');
+                                    setPickerInput(comp); setPickerIndex(0); fetchPickerResults(comp);
+                                }
+                                return;
+                            }
+                            if (e.key === 'Enter') {
+                                if (pr.length > 0 && pix < pr.length) {
+                                    const s = pr[pix];
+                                    const fp = resolvePickerPath(pi, s);
+                                    if (s.isDir) { setPickerInput(fp + '/'); setPickerIndex(0); fetchPickerResults(fp + '/'); }
+                                    else { doPreview(fp); setPickerVisible(false); focus(); }
+                                } else if (pi.trim()) { doPreview(pi.trim()); setPickerVisible(false); focus(); }
+                            }
+                        }}
+                        placeholder="输入文件路径（相对路径基于 SSH 工作目录）..."
+                        autoFocus
+                        style={{
+                            width: '100%', backgroundColor: '#1e1e1e', color: '#d4d4d4',
+                            border: '1px solid #555', borderRadius: 4, padding: '6px 10px',
+                            fontSize: 14, fontFamily: 'monospace', outline: 'none',
+                            boxSizing: 'border-box'
+                        }}
+                    />
+                    <div ref={pickerListRef} className="file-picker-list"
+                        style={{height: 320, overflowY: 'auto', marginTop: 4, scrollbarWidth: 'thin', scrollbarColor: '#555 transparent'}}>
+                    {pickerResults.length === 0 ? (
+                        <div style={{padding: '12px 10px', color: '#888', fontSize: 13, textAlign: 'center'}}>
+                            {pickerInput ? '无匹配文件' : '输入路径开始搜索...'}
+                        </div>
+                    ) : (
+                            pickerResults.map((f, i) => (
+                                <div key={f.name}
+                                    onClick={() => {
+                                        const fullPath = resolvePickerPath(pickerInput, f);
+                                        if (f.isDir) {
+                                            setPickerInput(fullPath + '/');
+                                            setPickerIndex(0);
+                                            fetchPickerResults(fullPath + '/');
+                                        } else {
+                                            doPreview(fullPath);
+                                            setPickerVisible(false);
+                                            focus();
+                                        }
+                                    }}
+                                    onMouseEnter={() => setPickerIndex(i)}
+                                    style={{
+                                        padding: '5px 10px', cursor: 'pointer',
+                                        backgroundColor: i === pickerIndex ? '#3a3a3a' : 'transparent',
+                                        color: '#d4d4d4', fontFamily: 'monospace', fontSize: 13,
+                                        borderRadius: 3,
+                                        display: 'flex', justifyContent: 'space-between'
+                                    }}
+                                >
+                                    <span>{f.isDir ? '📁 ' : '📄 '}{f.name}{f.isDir ? '/' : ''}</span>
+                                    <span style={{color: '#888', fontSize: 11}}>
+                                        {f.isDir ? '' : formatSize(f.size)}
+                                    </span>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+                </>
+            )}
 
             <Modal
                 title={previewTitle}
@@ -537,7 +623,6 @@ const Term = () => {
                 placement="right"
                 width={window.innerWidth * 0.8}
                 closable={true}
-                // maskClosable={false}
                 onClose={() => {
                     setFileSystemVisible(false);
                     setEnterBtnZIndex(1001); // xterm.js 输入框的zIndex是1000，在弹出文件管理页面后要隐藏此按钮

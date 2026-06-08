@@ -23,7 +23,7 @@ const {Content} = Layout;
 const ExecuteCommand = () => {
 
     let [sessions, setSessions] = useState([]);
-    const [searchParams, _] = useSearchParams();
+    const [searchParams] = useSearchParams();
     let commandId = searchParams.get('commandId');
 
     let commandQuery = useQuery('commandQuery', () => commandApi.getById(commandId),{

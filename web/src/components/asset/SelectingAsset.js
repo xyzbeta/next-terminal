@@ -1,7 +1,7 @@
 import React, {useState} from 'react';
 import {Badge, Modal, Select, Space, Table, Tag, Tooltip, Typography} from "antd";
 import {PROTOCOL_COLORS} from "../../common/constants";
-import {isEmpty} from "../../utils/utils";
+import {} from "../../utils/utils";
 import dayjs from "dayjs";
 import {ProTable} from "@ant-design/pro-components";
 import assetApi from "../../api/asset";

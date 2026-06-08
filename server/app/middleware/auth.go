@@ -25,6 +25,7 @@ var allowUrls = []urlpath.Path{
 	urlpath.New("/sessions/:id/stats"),
 	urlpath.New("/sessions/:id/ls"),
 	urlpath.New("/sessions/:id/download"),
+	urlpath.New("/sessions/:id/preview"),
 	urlpath.New("/sessions/:id/upload"),
 	urlpath.New("/sessions/:id/edit"),
 	urlpath.New("/sessions/:id/mkdir"),

@@ -149,7 +149,6 @@ class Playback extends Component {
             this.handlePlayPause();
             this.handlePlayPause();
             this.handlePlayPause();
-            console.log('播放')
         });
     }
 
@@ -210,7 +209,6 @@ class Playback extends Component {
         if (recording) {
             // Request seek
             recording.seek(value, () => {
-                console.log('complete');
             });
         }
 

@@ -122,7 +122,6 @@ const Guacd = () => {
         const keyboard = new Guacamole.Keyboard(sink.getElement());
 
         keyboard.onkeydown = (keysym) => {
-            console.log('aaa')
             client.sendKeyEvent(1, keysym);
             if (keysym === 65288) {
                 return false;
@@ -202,7 +201,6 @@ const Guacd = () => {
     }
 
     const focus = () => {
-        console.log(guacd.sink)
         if (guacd.sink) {
             guacd.sink.focus();
         }
