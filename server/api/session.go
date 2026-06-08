@@ -356,6 +356,62 @@ func (api SessionApi) SessionDownloadEndpoint(c echo.Context) error {
 	return errors.New("当前协议不支持此操作")
 }
 
+func (api SessionApi) SessionPreviewEndpoint(c echo.Context) error {
+	sessionId := c.Param("id")
+	s, err := repository.SessionRepository.FindById(context.TODO(), sessionId)
+	if err != nil {
+		return err
+	}
+	if s.Download != "1" {
+		return errors.New("禁止操作")
+	}
+	file := c.QueryParam("file")
+
+	filenameWithSuffix := path.Base(file)
+	contentType := echo.MIMEOctetStream
+	switch strings.ToLower(path.Ext(file)) {
+	case ".png":
+		contentType = "image/png"
+	case ".jpg", ".jpeg":
+		contentType = "image/jpeg"
+	case ".gif":
+		contentType = "image/gif"
+	case ".webp":
+		contentType = "image/webp"
+	case ".svg":
+		contentType = "image/svg+xml"
+	case ".bmp":
+		contentType = "image/bmp"
+	}
+
+	if "ssh" == s.Protocol {
+		nextSession := session.GlobalSessionManager.GetById(sessionId)
+		if nextSession == nil {
+			return errors.New("获取会话失败")
+		}
+		if nextSession.NextTerminal.SftpClient == nil {
+			sftpClient, err := sftp.NewClient(nextSession.NextTerminal.SshClient)
+			if err != nil {
+				return err
+			}
+			nextSession.NextTerminal.SftpClient = sftpClient
+		}
+		dstFile, err := nextSession.NextTerminal.SftpClient.Open(file)
+		if err != nil {
+			return err
+		}
+		defer dstFile.Close()
+		c.Response().Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%s", filenameWithSuffix))
+		c.Response().Header().Set("Content-Type", contentType)
+		c.Response().WriteHeader(http.StatusOK)
+		_, err = io.Copy(c.Response().Writer, dstFile)
+		return err
+	} else if "rdp" == s.Protocol {
+		return service.StorageService.StorageDownload(c, file, s.StorageId)
+	}
+	return errors.New("当前协议不支持此操作")
+}
+
 func (api SessionApi) SessionLsEndpoint(c echo.Context) error {
 	sessionId := c.Param("id")
 	s, err := service.SessionService.FindByIdAndDecrypt(context.TODO(), sessionId)
@@ -597,3 +653,5 @@ func (api SessionApi) SessionStatsEndpoint(c echo.Context) error {
 	}
 	return Success(c, stats)
 }
+
+

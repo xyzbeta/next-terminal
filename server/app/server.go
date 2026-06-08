@@ -210,6 +210,7 @@ func setupRoutes() *echo.Echo {
 
 		sessions.POST("/:id/ls", SessionApi.SessionLsEndpoint)
 		sessions.GET("/:id/download", SessionApi.SessionDownloadEndpoint)
+	sessions.GET("/:id/preview", SessionApi.SessionPreviewEndpoint)
 		sessions.POST("/:id/upload", SessionApi.SessionUploadEndpoint)
 		sessions.POST("/:id/edit", SessionApi.SessionEditEndpoint)
 		sessions.POST("/:id/mkdir", SessionApi.SessionMkDirEndpoint)

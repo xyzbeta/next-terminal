@@ -1,15 +1,15 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {useSearchParams} from "react-router-dom";
 import {Terminal} from "xterm";
 import {FitAddon} from "xterm-addon-fit";
 import {getToken} from "../../utils/utils";
 import request from "../../common/request";
-import {Affix, Button, Drawer, Dropdown, Menu, message, Select, Space, Typography} from "antd";
+import {Affix, Button, Drawer, Dropdown, Menu, message, Modal, Popover, Select, Space, Typography} from "antd";
 import Message from "./Message";
 import qs from "qs";
-import {wsServer} from "../../common/env";
+import {server, wsServer} from "../../common/env";
 import Draggable from "react-draggable";
-import {CodeOutlined, FolderOutlined, LineChartOutlined} from "@ant-design/icons";
+import {CodeOutlined, FolderOutlined, LineChartOutlined, ThunderboltOutlined} from "@ant-design/icons";
 import FileSystem from "../devops/FileSystem";
 import "xterm/css/xterm.css"
 import Stats from "./Stats";
@@ -32,6 +32,10 @@ const Term = () => {
     let [commands, setCommands] = useState([]);
     let [latency, setLatency] = useState(null); // 延迟 ms，null = 尚未测量
     let [aliveStatus, setAliveStatus] = useState('connecting'); // connecting | alive | slow | offline
+    let cwdRef = useRef(''); // 跟踪 cd 命令，保存终端当前工作目录
+    let [previewVisible, setPreviewVisible] = useState(false);
+    let [previewUrl, setPreviewUrl] = useState('');
+    let [previewTitle, setPreviewTitle] = useState('');
 
     let [term, setTerm] = useState();
     let [fitAddon, setFitAddon] = useState();
@@ -217,7 +221,130 @@ const Term = () => {
             clearInterval(offlineTimer);
         }
 
+        let isAtLineStart = true;
+        let commandBuffer = '';
+        let inCommandMode = false;
+        let normalBuffer = ''; // 跟踪 cd 命令
+
+        const exitCommandMode = () => {
+            inCommandMode = false;
+            commandBuffer = '';
+            term.write('\r\n');
+        };
+
+        const doPreview = (filePath) => {
+            let resolved = filePath;
+            if (filePath.startsWith('./')) {
+                resolved = cwdRef.current + '/' + filePath.slice(2);
+            } else if (filePath.startsWith('.')) {
+                resolved = cwdRef.current + '/' + filePath;
+            } else if (!filePath.startsWith('/') && cwdRef.current) {
+                resolved = cwdRef.current + '/' + filePath;
+            }
+            const token = getToken();
+            const url = `${server}/sessions/${sessionId}/preview?file=${encodeURI(resolved)}&X-Auth-Token=${token}&t=${Date.now()}`;
+            setPreviewUrl(url);
+            setPreviewTitle(resolved);
+            setPreviewVisible(true);
+        };
+
         term.onData(data => {
+            if (inCommandMode) {
+                if (data === '\r') {
+                    const path = commandBuffer.slice(1).trim();
+                    if (path) doPreview(path);
+                    exitCommandMode();
+                    return;
+                }
+                if (data === '\x1b') {
+                    exitCommandMode();
+                    return;
+                }
+                if (data === '\t') {
+                    // Tab 补全
+                    const partial = commandBuffer.slice(1);
+                    const lastSlash = partial.lastIndexOf('/');
+                    let dir = lastSlash >= 0 ? partial.substring(0, lastSlash + 1) : '.';
+                    if (dir.startsWith('.') && cwdRef.current) {
+                        dir = dir === '.' ? cwdRef.current + '/' : cwdRef.current + '/' + dir;
+                    }
+                    const prefix = lastSlash >= 0 ? partial.substring(lastSlash + 1) : partial;
+                    const token = getToken();
+                    const lsUrl = `${server}/sessions/${sessionId}/ls?X-Auth-Token=${token}`;
+                    fetch(lsUrl, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: `dir=${encodeURI(dir)}`
+                    })
+                    .then(r => r.json())
+                    .then(result => {
+                        const files = (result.data || []).map(f => f.name);
+                        const matches = files.filter(f => f.startsWith(prefix));
+                        if (matches.length === 1) {
+                            const completed = matches[0];
+                            const suffix = completed.substring(prefix.length);
+                            commandBuffer += suffix;
+                            term.write(suffix);
+                        } else if (matches.length > 1) {
+                            // 多个匹配，显示提示
+                            term.write('\r\n' + matches.join('  ') + '\r\n');
+                            // 重新回显当前输入
+                            term.write(commandBuffer);
+                        }
+                    })
+                    .catch(() => {});
+                    return;
+                }
+                if (data === '\x7f') {
+                    if (commandBuffer.length > 1) {
+                        commandBuffer = commandBuffer.slice(0, -1);
+                        term.write('\b \b');
+                    } else {
+                        inCommandMode = false;
+                        commandBuffer = '';
+                        term.write('\b \b');
+                        isAtLineStart = true;
+                    }
+                    return;
+                }
+                commandBuffer += data;
+                term.write(data);
+                return;
+            }
+
+            if (data === '\r') {
+                // 检测 cd 命令，跟踪 shell 工作目录
+                const m = normalBuffer.match(/^\s*cd\s+(.+)/);
+                if (m) {
+                    const dir = m[1].trim();
+                    if (dir.startsWith('/')) {
+                        cwdRef.current = dir;
+                    } else if (dir.startsWith('..')) {
+                        // 简化处理：只往上跳一级
+                        const parts = cwdRef.current.split('/');
+                        parts.pop();
+                        cwdRef.current = parts.join('/') || '/';
+                    } else {
+                        cwdRef.current = cwdRef.current ? cwdRef.current + '/' + dir : '/' + dir;
+                    }
+                }
+                normalBuffer = '';
+                isAtLineStart = true;
+            } else if (isAtLineStart && data === '@') {
+                inCommandMode = true;
+                commandBuffer = '@';
+                isAtLineStart = false;
+                term.write('@');
+                return;
+            } else {
+                if (data === '\x7f') {
+                    normalBuffer = normalBuffer.slice(0, -1);
+                } else {
+                    normalBuffer += data;
+                }
+                isAtLineStart = false;
+            }
+
             if (webSocket !== undefined) {
                 webSocket.send(new Message(Message.Data, data).toString());
             }
@@ -360,13 +487,50 @@ const Term = () => {
             </Draggable>
 
             <Draggable>
-                <Affix style={{position: 'absolute', top: 100, right: 100, zIndex: enterBtnZIndex}}>
+                <Affix style={{position: 'absolute', top: 100, right: 50, zIndex: enterBtnZIndex}}>
                     <Button icon={<LineChartOutlined/>} onClick={() => {
                         setStatsVisible(true);
                         setEnterBtnZIndex(999);
                     }}/>
                 </Affix>
             </Draggable>
+
+            <Draggable>
+                <Affix style={{position: 'absolute', top: 100, right: 100, zIndex: enterBtnZIndex}}>
+                    <Popover
+                        content={
+                            <table style={{fontSize: 13}}>
+                                <thead>
+                                    <tr><th style={{padding: '4px 12px', textAlign: 'left'}}>命令</th><th style={{padding: '4px 12px', textAlign: 'left'}}>功能</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td style={{padding: '4px 12px', fontFamily: 'monospace'}}>@文件路径</td><td style={{padding: '4px 12px'}}>预览远程主机图片</td></tr>
+                                </tbody>
+                            </table>
+                        }
+                        title="快捷命令"
+                        trigger="click"
+                    >
+                        <Button icon={<ThunderboltOutlined/>} onClick={() => setEnterBtnZIndex(999)}/>
+                    </Popover>
+                </Affix>
+            </Draggable>
+
+            <Modal
+                title={previewTitle}
+                open={previewVisible}
+                footer={null}
+                onCancel={() => setPreviewVisible(false)}
+                width="auto"
+                destroyOnClose
+                centered
+                styles={{body: {padding: 0, display: 'flex', justifyContent: 'center', backgroundColor: '#fff'}}}
+            >
+                {previewUrl && <img src={previewUrl} alt={previewTitle}
+                    style={{display: 'block'}}
+                    onError={() => message.error('图片加载失败，请检查路径是否正确')}
+                />}
+            </Modal>
 
             <Drawer
                 title={'会话详情'}

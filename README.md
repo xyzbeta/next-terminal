@@ -1,4 +1,4 @@
-# Next Terminal v1.4.1
+# Next Terminal v1.4.2
 
 > 开源交互审计系统 — 堡垒机/跳板机，支持 RDP、SSH、VNC、Telnet、Kubernetes 协议。
 > 本项目基于 [dushixiang/next-terminal](https://github.com/dushixiang/next-terminal) v1.3.9 二次开发优化。
@@ -16,6 +16,15 @@ Copyright © 2020-2026 dushixiang, All Rights Reserved.
 原始项目使用 [AGPL-3.0](./LICENSE) 开源协议，本项目继承相同协议。感谢原作者 [dushixiang](https://github.com/dushixiang) 的优秀工作。
 
 ---
+
+## v1.4.2 更新内容
+
+| 类别 | 内容 | 说明 |
+|------|------|------|
+| 新功能 | 终端图片预览 | 输入 `@文件路径` 回车弹窗预览远程主机图片，支持 Tab 补全、绝对/相对路径 |
+| 新功能 | 终端快捷命令入口 | 工具栏新增闪电(⚡)按钮，展示已支持的命令列表，后续快捷命令可在此扩展 |
+| 新功能 | SSH 终端存活指示器 | 右下角实时显示链路延迟（● XXms），2s 刷新，8s 无响应标记离线 |
+| 优化 | Ping 保活机制优化 | 自定义请求改为标准 `keepalive@openssh.com`，消除部分 SSH 服务器超时问题 |
 
 ## v1.4.1 更新内容
 
