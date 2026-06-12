@@ -428,23 +428,31 @@ func (api SessionApi) SessionLsEndpoint(c echo.Context) error {
 		return err
 	}
 
-	// partial: 用户输入的部分路径，如 "ops/di" → remoteDir="ops/", namePrefix="di"
+	// partial（新版浮动选择器）：用户打字的中间输入，需分离目录+前缀，如 "ops/di" → dir="ops/", prefix="di"
+	// dir（旧版 FileSystem）：直接指定目录路径，不做拆分
 	partial := c.FormValue("partial")
-	if partial == "" {
-		partial = c.FormValue("dir") // 兼容旧调用
-	}
+	legacyDir := c.FormValue("dir")
 	namePrefix := ""
 	remoteDir := "."
+
 	if partial != "" {
-		lastSlash := strings.LastIndex(partial, "/")
-		if lastSlash >= 0 {
-			remoteDir = partial[:lastSlash+1]
-			namePrefix = partial[lastSlash+1:]
-		} else if strings.HasPrefix(partial, "/") {
+		// 新版选择器语义：拆分为目录 + 文件名前缀
+		if strings.HasSuffix(partial, "/") {
 			remoteDir = partial
 		} else {
-			namePrefix = partial
+			lastSlash := strings.LastIndex(partial, "/")
+			if lastSlash >= 0 {
+				remoteDir = partial[:lastSlash+1]
+				namePrefix = partial[lastSlash+1:]
+			} else if strings.HasPrefix(partial, "/") {
+				remoteDir = partial
+			} else {
+				namePrefix = partial
+			}
 		}
+	} else if legacyDir != "" {
+		// 旧版 FileSystem 语义：直接列出目录
+		remoteDir = legacyDir
 	}
 	if "ssh" == s.Protocol {
 		nextSession := session.GlobalSessionManager.GetById(sessionId)

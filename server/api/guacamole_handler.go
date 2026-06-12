@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"next-terminal/server/common/guacamole"
+	"next-terminal/server/log"
 
 	"github.com/gorilla/websocket"
 )
@@ -33,6 +34,7 @@ func (r GuacamoleHandler) Start() {
 			default:
 				instruction, err := r.tunnel.Read()
 				if err != nil {
+					log.Warn("guacd 隧道读取失败，RDP 连接断开", log.NamedError("err", err))
 					guacamole.Disconnect(r.ws, TunnelClosed, "远程连接已关闭")
 					return
 				}

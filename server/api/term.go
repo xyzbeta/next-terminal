@@ -188,13 +188,9 @@ func (api WebTerminalApi) SshEndpoint(c echo.Context) error {
 				service.SessionService.CloseSessionById(sessionId, TunnelClosed, "远程连接已关闭")
 			}
 		case Ping:
-			// 经 SSH keepalive 测量真实链路延迟
-			err := termHandler.SendRequest()
-			if err != nil {
-				service.SessionService.CloseSessionById(sessionId, TunnelClosed, "远程连接已关闭")
-			} else {
-				_ = termHandler.SendMessageToWebSocket(dto.NewMessage(Ping, ""))
-			}
+			// 直接回复 Ping 测量 WebSocket 链路延迟，不做 SSH keepalive
+			// SSH 连接健康由 TermHandler.keepalive() goroutine 监控（每 30s）
+			_ = termHandler.SendMessageToWebSocket(dto.NewMessage(Ping, ""))
 
 		}
 	}

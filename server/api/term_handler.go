@@ -152,11 +152,6 @@ func (r *TermHandler) WindowChange(h int, w int) error {
 	return r.nextTerminal.WindowChange(h, w)
 }
 
-func (r *TermHandler) SendRequest() error {
-	_, _, err := r.nextTerminal.SshClient.Conn.SendRequest("keepalive@openssh.com", true, nil)
-	return err
-}
-
 func (r *TermHandler) SendMessageToWebSocket(msg dto.Message) error {
 	if r.webSocket == nil {
 		return nil

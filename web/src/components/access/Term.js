@@ -283,12 +283,12 @@ const Term = () => {
             }, 30);
         };
 
-        webSocket.onerror = (e) => {
-            writeErrorMessage(xterm, `websocket error ${e.data}`)
+        webSocket.onerror = () => {
+            // WebSocket error 不携带有意义数据，关闭原因见 onclose 或后端 Closed 消息
         }
 
         webSocket.onclose = (e) => {
-            xterm.writeln("connection is closed.");
+            xterm.writeln(`connection closed (code: ${e.code})`);
             setAliveStatus('offline');
             clearInterval(pingInterval);
             clearInterval(offlineTimer);
