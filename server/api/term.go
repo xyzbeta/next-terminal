@@ -13,6 +13,7 @@ import (
 	"next-terminal/server/config"
 	"next-terminal/server/dto"
 	"next-terminal/server/global/session"
+	"next-terminal/server/log"
 	"next-terminal/server/model"
 	"next-terminal/server/repository"
 	"next-terminal/server/service"
@@ -53,8 +54,10 @@ func (api WebTerminalApi) SshEndpoint(c echo.Context) error {
 		return WriteMessage(ws, dto.NewMessage(Closed, "获取会话或解密数据失败"))
 	}
 
-	if err := api.permissionCheck(c, s.AssetId); err != nil {
-		return WriteMessage(ws, dto.NewMessage(Closed, err.Error()))
+	// Session ownership: non-admin users can only access their own sessions
+	user, _ := GetCurrentAccount(c)
+	if user != nil && user.Type != nt.TypeAdmin && user.ID != s.Creator {
+		return WriteMessage(ws, dto.NewMessage(Closed, "无权限访问此会话"))
 	}
 
 	var (
@@ -157,7 +160,7 @@ func (api WebTerminalApi) SshEndpoint(c echo.Context) error {
 	for {
 		_, message, err := ws.ReadMessage()
 		if err != nil {
-			// web socket会话关闭后主动关闭ssh会话
+			log.Warn("WebSocket读取失败，关闭SSH会话", log.String("sessionId", sessionId), log.NamedError("err", err))
 			service.SessionService.CloseSessionById(sessionId, Normal, "用户正常退出")
 			break
 		}
@@ -185,6 +188,7 @@ func (api WebTerminalApi) SshEndpoint(c echo.Context) error {
 			input := []byte(msg.Content)
 			err := termHandler.Write(input)
 			if err != nil {
+				log.Warn("SSH写入失败，关闭会话", log.String("sessionId", sessionId), log.NamedError("err", err))
 				service.SessionService.CloseSessionById(sessionId, TunnelClosed, "远程连接已关闭")
 			}
 		case Ping:

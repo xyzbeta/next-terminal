@@ -237,9 +237,9 @@ const Term = () => {
         let pingSentAt = 0;
         let lastActivity = Date.now();
 
-        // 存活检查：8s 无任何消息则标记 offline（4 次 ping 无响应）
+        // 存活检查：15s 无任何消息则标记 offline（允许网络轻度延迟，减少误报）
         const offlineTimer = setInterval(() => {
-            if (Date.now() - lastActivity > 8000) {
+            if (Date.now() - lastActivity > 15000) {
                 setAliveStatus('offline');
             }
         }, 3000);

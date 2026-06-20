@@ -10,14 +10,17 @@ import (
 	"next-terminal/server/common/term"
 	"next-terminal/server/dto"
 	"next-terminal/server/global/session"
+	"next-terminal/server/log"
 )
 
 const (
-	tickInterval      = 60 * time.Millisecond
-	flushThreshold    = 32 * 1024 // 超过此阈值立即刷新，不等待 ticker
-	chanBufSize       = 64        // dataChan 缓冲大小
-	readChunkSize     = 4096      // SSH stdout 每次读取块大小
-	keepaliveInterval = 30 * time.Second
+	tickInterval           = 60 * time.Millisecond
+	flushThreshold         = 32 * 1024 // 超过此阈值立即刷新，不等待 ticker
+	chanBufSize            = 64        // dataChan 缓冲大小
+	readChunkSize          = 4096      // SSH stdout 每次读取块大小
+	keepaliveInterval      = 30 * time.Second
+	keepaliveRetryInterval = 5 * time.Second  // 失败后快速重试间隔
+	keepaliveMaxFailures   = 3                 // 连续失败超过此阈值才关闭连接
 )
 
 type TermHandler struct {
@@ -56,9 +59,11 @@ func (r *TermHandler) Start() {
 }
 
 // keepalive 定期向远端 SSH 服务器发送心跳，检测僵死连接
+// 允许连续 keepaliveMaxFailures 次失败，防止网络瞬断导致会话被误杀
 func (r *TermHandler) keepalive() {
 	ticker := time.NewTicker(keepaliveInterval)
 	defer ticker.Stop()
+	failures := 0
 	for {
 		select {
 		case <-r.ctx.Done():
@@ -66,9 +71,20 @@ func (r *TermHandler) keepalive() {
 		case <-ticker.C:
 			_, _, err := r.nextTerminal.SshClient.Conn.SendRequest("keepalive@openssh.com", true, nil)
 			if err != nil {
-				// 连接断开，触发清理
-				_ = r.nextTerminal.SshSession.Close()
-				return
+				failures++
+				if failures >= keepaliveMaxFailures {
+					// 连续失败超阈值，判定连接已断开
+					log.Warn("SSH keepalive 连续失败，关闭连接", log.Int("failures", failures), log.String("sessionId", r.sessionId))
+					_ = r.nextTerminal.SshSession.Close()
+					return
+				}
+				// 快速重试：缩短间隔检测是否恢复
+				ticker.Reset(keepaliveRetryInterval)
+			} else {
+				if failures > 0 {
+					failures = 0
+					ticker.Reset(keepaliveInterval)
+				}
 			}
 		}
 	}
@@ -158,6 +174,8 @@ func (r *TermHandler) SendMessageToWebSocket(msg dto.Message) error {
 	}
 	defer r.mutex.Unlock()
 	r.mutex.Lock()
+	// WriteDeadline 防止写阻塞卡死（浏览器断连等场景）
+	_ = r.webSocket.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	message := []byte(msg.ToString())
 	return r.webSocket.WriteMessage(websocket.TextMessage, message)
 }

@@ -413,19 +413,36 @@ func (api GuacamoleApi) setConfig(propertyMap map[string]string, s model.Session
 	}
 }
 
+const (
+	nopKeepaliveInterval      = 15 * time.Second
+	nopKeepaliveRetryInterval = 5 * time.Second
+	nopKeepaliveMaxFailures   = 3
+)
+
 // startNopKeepalive 启动 guacd nop 保活 goroutine，返回 done channel 用于停止
+// 允许连续 nopKeepaliveMaxFailures 次失败，防止网络瞬断导致保活退出
 func startNopKeepalive(tunnel *guacamole.Tunnel) chan struct{} {
 	done := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(15 * time.Second)
+		ticker := time.NewTicker(nopKeepaliveInterval)
 		defer ticker.Stop()
+		failures := 0
 		for {
 			select {
 			case <-done:
 				return
 			case <-ticker.C:
 				if _, err := tunnel.WriteAndFlush([]byte("3.nop;")); err != nil {
-					return
+					failures++
+					if failures >= nopKeepaliveMaxFailures {
+						return
+					}
+					ticker.Reset(nopKeepaliveRetryInterval)
+				} else {
+					if failures > 0 {
+						failures = 0
+						ticker.Reset(nopKeepaliveInterval)
+					}
 				}
 			}
 		}

@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"time"
+
 	"next-terminal/server/common/guacamole"
 	"next-terminal/server/log"
 
@@ -41,8 +43,13 @@ func (r GuacamoleHandler) Start() {
 				if len(instruction) == 0 {
 					continue
 				}
+				err = r.ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err != nil {
+					return
+				}
 				err = r.ws.WriteMessage(websocket.TextMessage, instruction)
 				if err != nil {
+					log.Warn("guacd 写入 WebSocket 失败", log.NamedError("err", err))
 					return
 				}
 			}

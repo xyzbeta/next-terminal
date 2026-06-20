@@ -53,7 +53,6 @@ func NewSshClient(ip string, port int, username, password, privateKey, passphras
 	}
 
 	config := &ssh.ClientConfig{
-		Timeout:         3 * time.Second,
 		User:            username,
 		Auth:            []ssh.AuthMethod{authMethod},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
@@ -63,7 +62,22 @@ func NewSshClient(ip string, port int, username, password, privateKey, passphras
 	}
 
 	addr := fmt.Sprintf("%s:%d", ip, port)
-	return ssh.Dial("tcp", addr, config)
+
+	// 使用自定义 dialer 启用 TCP keepalive，中间 NAT/firewall 不会因无声期断开连接
+	netDialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 15 * time.Second,
+	}
+	conn, err := netDialer.Dial("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	clientConn, channels, requests, err := ssh.NewClientConn(conn, addr, config)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return ssh.NewClient(clientConn, channels, requests), nil
 }
 
 func NewSshClientUseSocks(ip string, port int, username, password, privateKey, passphrase string, socksProxyHost, socksProxyPort, socksProxyUsername, socksProxyPassword string) (*ssh.Client, error) {
