@@ -105,6 +105,7 @@ func (r *TermHandler) readFormTunnel() {
 		default:
 			n, err := r.nextTerminal.StdoutReader.Read(buf)
 			if err != nil {
+				log.Warn("SSH stdout 读取失败，readFormTunnel 退出", log.String("sessionId", r.sessionId), log.NamedError("err", err))
 				return
 			}
 			if n > 0 {
@@ -129,13 +130,15 @@ func (r *TermHandler) writeToWebsocket() {
 			return
 		case <-r.tick.C:
 			if !r.flush() {
-				return
+				log.Warn("WebSocket 写入失败，writeToWebsocket 退出(tick)", log.String("sessionId", r.sessionId))
+					return
 			}
 		case data := <-r.dataChan:
 			r.buf.Write(data)
 			if r.buf.Len() >= flushThreshold {
 				if !r.flush() {
-					return
+					log.Warn("WebSocket 写入失败，writeToWebsocket 退出(data)", log.String("sessionId", r.sessionId))
+						return
 				}
 			}
 		}
@@ -149,7 +152,8 @@ func (r *TermHandler) flush() bool {
 		return true
 	}
 	if err := r.SendMessageToWebSocket(dto.NewMessage(Data, s)); err != nil {
-		return false
+		log.Warn("flush 发送 WebSocket 失败", log.String("sessionId", r.sessionId), log.NamedError("err", err))
+			return false
 	}
 	if r.isRecording {
 		_ = r.nextTerminal.Recorder.WriteData(s)
@@ -177,14 +181,16 @@ func (r *TermHandler) SendMessageToWebSocket(msg dto.Message) error {
 	// WriteDeadline 防止写阻塞卡死（浏览器断连等场景）
 	_ = r.webSocket.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	message := []byte(msg.ToString())
-	return r.webSocket.WriteMessage(websocket.TextMessage, message)
+	return r.webSocket.WriteMessage(websocket.BinaryMessage, message)
 }
 
 func SendObData(sessionId, s string) {
 	nextSession := session.GlobalSessionManager.GetById(sessionId)
 	if nextSession != nil && nextSession.Observer != nil {
 		nextSession.Observer.Range(func(key string, ob *session.Session) {
-			_ = ob.WriteMessage(dto.NewMessage(Data, s))
+			if err := ob.WriteMessage(dto.NewMessage(Data, s)); err != nil {
+				log.Warn("observer write failed", log.String("observerId", key), log.NamedError("err", err))
+			}
 		})
 	}
 }

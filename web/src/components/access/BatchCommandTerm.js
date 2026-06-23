@@ -63,6 +63,7 @@ class BatchCommandTerm extends Component {
         let paramStr = qs.stringify(params);
 
         let webSocket = new WebSocket(`${wsServer}/sessions/${sessionId}/ssh?${paramStr}`);
+        webSocket.binaryType = 'arraybuffer';
 
         this.props.appendWebsocket({'id': assetId, 'ws': webSocket});
 
@@ -79,7 +80,8 @@ class BatchCommandTerm extends Component {
 
         let executedCommand = false
         webSocket.onmessage = (e) => {
-            let msg = Message.parse(e.data);
+            const data = (e.data instanceof ArrayBuffer) ? new TextDecoder("utf-8").decode(e.data) : e.data;
+            let msg = Message.parse(data);
             switch (msg['type']) {
                 case Message.Connected:
                     term.clear();

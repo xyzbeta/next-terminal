@@ -4,6 +4,7 @@ import (
 	"next-terminal/server/common/guacamole"
 	"next-terminal/server/common/term"
 	"sync"
+	"next-terminal/server/log"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -31,7 +32,7 @@ func (s *Session) WriteMessage(msg dto.Message) error {
 	defer s.mutex.Unlock()
 	s.mutex.Lock()
 	message := []byte(msg.ToString())
-	return s.WebSocket.WriteMessage(websocket.TextMessage, message)
+	return s.WebSocket.WriteMessage(websocket.BinaryMessage, message)
 }
 
 func (s *Session) WriteString(str string) error {
@@ -45,6 +46,7 @@ func (s *Session) WriteString(str string) error {
 }
 
 func (s *Session) Close() {
+	log.Warn("Session.Close 被调用", log.String("sessionId", s.ID))
 	if s.GuacdTunnel != nil {
 		_ = s.GuacdTunnel.Close()
 	}
@@ -107,6 +109,7 @@ func (m *Manager) Add(s *Session) {
 }
 
 func (m *Manager) Del(id string) {
+	log.Warn("GlobalSessionManager.Del 被调用", log.String("sessionId", id))
 	session := m.GetById(id)
 	if session != nil {
 		session.Close()

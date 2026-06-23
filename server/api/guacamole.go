@@ -88,7 +88,7 @@ func (api GuacamoleApi) Guacamole(c echo.Context) error {
 				for {
 					_, message, err := ws.ReadMessage()
 					if err != nil {
-						log.Debug("重连 WebSocket 已关闭", log.String("sessionId", sessionId), log.NamedError("err", err))
+						log.Warn("RDP 重连 WebSocket 读取失败", log.String("sessionId", sessionId), log.NamedError("err", err))
 						service.SessionService.MarkDisconnected(sessionId)
 						return nil
 					}
@@ -214,7 +214,7 @@ func (api GuacamoleApi) Guacamole(c echo.Context) error {
 	for {
 		_, message, err := ws.ReadMessage()
 		if err != nil {
-			log.Debug("WebSocket已关闭", log.String("sessionId", sessionId), log.NamedError("err", err))
+			log.Warn("RDP Guacamole WebSocket 读取失败，会话断开", log.String("sessionId", sessionId), log.NamedError("err", err))
 			// guacdTunnel.Read() 会阻塞，所以要先把guacdTunnel客户端关闭，才能退出Guacd循环
 			_ = guacdTunnel.Close()
 
@@ -224,6 +224,7 @@ func (api GuacamoleApi) Guacamole(c echo.Context) error {
 		nextSession.UpdateLastActive()
 		_, err = guacdTunnel.WriteAndFlush(message)
 		if err != nil {
+			log.Warn("guacd 写入失败，关闭 RDP 会话", log.String("sessionId", sessionId), log.NamedError("err", err))
 			service.SessionService.CloseSessionById(sessionId, TunnelClosed, "远程连接已关闭")
 			return nil
 		}
@@ -337,6 +338,7 @@ func (api GuacamoleApi) GuacamoleMonitor(c echo.Context) error {
 
 		_, err = guacdTunnel.WriteAndFlush(message)
 		if err != nil {
+			log.Warn("guacd 写入失败，关闭 RDP 会话", log.String("sessionId", sessionId), log.NamedError("err", err))
 			service.SessionService.CloseSessionById(sessionId, TunnelClosed, "远程连接已关闭")
 			return nil
 		}

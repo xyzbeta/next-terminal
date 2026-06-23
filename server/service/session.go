@@ -127,6 +127,7 @@ func (service sessionService) CloseSessionById(sessionId string, code int, reaso
 
 // MarkDisconnected 标记会话连接已断开（不关闭隧道，保留重连可能）
 func (service sessionService) MarkDisconnected(sessionId string) {
+	log.Warn("会话标记为断开状态，保留隧道可重连", log.String("sessionId", sessionId))
 	session.GlobalSessionManager.Del(sessionId)
 	service.DisDBSess(sessionId, 0, "连接断开")
 }

@@ -54,6 +54,7 @@ const TermMonitor = () => {
         let waiting = true;
 
         let webSocket = new WebSocket(`${wsServer}/sessions/${sessionId}/ssh-monitor?${paramStr}`);
+        webSocket.binaryType = 'arraybuffer';
 
         // rAF 节流渲染
         let pendingData = '';
@@ -82,7 +83,8 @@ const TermMonitor = () => {
         };
 
         webSocket.onmessage = (e) => {
-            let msg = Message.parse(e.data);
+            const data = (e.data instanceof ArrayBuffer) ? new TextDecoder("utf-8").decode(e.data) : e.data;
+            let msg = Message.parse(data);
             switch (msg['type']) {
                 case Message.Connected:
                     term.clear();
