@@ -18,13 +18,12 @@ import commandApi from "../../api/command";
 import strings from "../../utils/strings";
 import workCommandApi from "../../api/worker/command";
 import {xtermScrollPretty} from "../../utils/xterm-scroll-pretty";
+// remark-gfm 是 ESM-only 包，CRA 5 的 webpack 无法正确解析，改用纯 react-markdown 渲染
 
 const {Text} = Typography;
 
-// 懒加载：MD 渲染 + 代码编辑器（仅在预览时加载）
+// 懒加载：MD 渲染（仅在预览时加载）
 const ReactMarkdown = lazy(() => import('react-markdown'));
-const RemarkGfm = lazy(() => import('remark-gfm'));
-const MonacoEditor = lazy(() => import('react-monaco-editor'));
 
 // 文件扩展名 → 预览类型映射
 const TEXT_EXTENSIONS = new Set([
@@ -685,8 +684,15 @@ const Term = () => {
                 title={previewTitle}
                 open={previewVisible}
                 footer={null}
-                onCancel={() => setPreviewVisible(false)}
-                width={previewType === 'code' ? '90%' : 'auto'}
+                onCancel={() => {
+                    setPreviewVisible(false);
+                    // 关闭时重置预览状态，避免下次打开类型错误
+                    setPreviewType('image');
+                    setPreviewUrl('');
+                    setMarkdownContent('');
+                    setTextContent('');
+                }}
+                width={(previewType === 'code' || previewType === 'html' || previewType === 'pdf') ? '90%' : 'auto'}
                 destroyOnClose
                 centered
                 styles={{body: previewType === 'image' ? {padding: 0, display: 'flex', justifyContent: 'center', backgroundColor: '#fff'} : {padding: 0}}}
@@ -711,26 +717,35 @@ const Term = () => {
                 {previewType === 'md' && (
                     <div style={{padding: 16, maxHeight: '80vh', overflow: 'auto', fontSize: 14, lineHeight: 1.6}}>
                         <Suspense fallback={<div style={{padding: 20, textAlign: 'center', color: '#888'}}>加载中...</div>}>
-                            <ReactMarkdown remarkPlugins={[RemarkGfm]}>{markdownContent}</ReactMarkdown>
+                            <ReactMarkdown>{markdownContent}</ReactMarkdown>
                         </Suspense>
                     </div>
                 )}
                 {previewType === 'code' && (
-                    <div style={{height: '70vh', width: '100%'}}>
-                        <Suspense fallback={<div style={{padding: 20, textAlign: 'center', color: '#888'}}>加载中...</div>}>
-                            <MonacoEditor
-                                language={textLanguage}
-                                value={textContent}
-                                options={{
-                                    readOnly: true,
-                                    minimap: {enabled: false},
-                                    scrollBeyondLastLine: false,
-                                    fontSize: 13,
-                                    automaticLayout: true,
-                                    wordWrap: 'on',
-                                }}
-                            />
-                        </Suspense>
+                    <div style={{
+                        display: 'flex', height: '70vh', width: '100%',
+                        background: '#ffffff', color: '#333333',
+                        fontFamily: '"Fira Code", "Cascadia Code", "JetBrains Mono", monaco, monospace',
+                        fontSize: 13, lineHeight: 1.6, tabSize: 4,
+                    }}>
+                        {/* 行号列 */}
+                        <div style={{
+                            padding: '16px 8px', textAlign: 'right', userSelect: 'none',
+                            color: '#999999', background: '#f5f5f5',
+                            minWidth: 48, overflow: 'hidden', flexShrink: 0,
+                            borderRight: '1px solid #e0e0e0',
+                        }}>
+                            {textContent.split('\n').map((_, i) => (
+                                <div key={i} style={{height: '1.6em', whiteSpace: 'pre'}}>{i + 1}</div>
+                            ))}
+                        </div>
+                        {/* 代码内容 */}
+                        <div style={{
+                            flex: 1, overflow: 'auto', padding: '16px 20px',
+                            whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                        }}>
+                            <code>{textContent}</code>
+                        </div>
                     </div>
                 )}
             </Modal>

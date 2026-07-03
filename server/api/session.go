@@ -389,8 +389,7 @@ func (api SessionApi) SessionPreviewEndpoint(c echo.Context) error {
 	case ".md":
 		contentType = "text/plain; charset=utf-8"
 	case ".html":
-		// 安全：始终以纯文本返回 HTML 文件，避免浏览器执行远程脚本
-		contentType = "text/plain; charset=utf-8"
+		contentType = "text/html; charset=utf-8"
 	}
 
 	if "ssh" == s.Protocol {
