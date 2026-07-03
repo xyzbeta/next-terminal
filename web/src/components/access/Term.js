@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {Suspense, lazy, useEffect, useMemo, useRef, useState} from 'react';
 import {useSearchParams} from "react-router-dom";
 import {Terminal} from "xterm";
 import {FitAddon} from "xterm-addon-fit";
@@ -21,6 +21,37 @@ import {xtermScrollPretty} from "../../utils/xterm-scroll-pretty";
 
 const {Text} = Typography;
 
+// 懒加载：MD 渲染 + 代码编辑器（仅在预览时加载）
+const ReactMarkdown = lazy(() => import('react-markdown'));
+const RemarkGfm = lazy(() => import('remark-gfm'));
+const MonacoEditor = lazy(() => import('react-monaco-editor'));
+
+// 文件扩展名 → 预览类型映射
+const TEXT_EXTENSIONS = new Set([
+  'go','py','js','ts','jsx','tsx','java','rb','php','c','cpp','h','hpp',
+  'rs','swift','kt','scala','pl','pm','lua','r','m','mm',
+  'sh','bash','zsh','fish','ps1','bat','cmd',
+  'json','xml','yaml','yml','toml','ini','cfg','conf','env','properties',
+  'txt','log','csv','tsv','sql','css','scss','less','sass',
+  'md','rst','asciidoc','adoc',
+  'dockerfile','makefile','gradle',
+  'diff','patch','proto',
+]);
+const IMAGE_EXTENSIONS = new Set(['png','jpg','jpeg','gif','webp','svg','bmp']);
+
+// Monaco Editor 语言映射（扩展名 → language ID）
+const EXT_TO_MONACO_LANG = {
+  'go':'go','py':'python','js':'javascript','ts':'typescript','jsx':'javascript','tsx':'typescript',
+  'java':'java','rb':'ruby','c':'c','cpp':'cpp','h':'c','hpp':'cpp',
+  'rs':'rust','swift':'swift','kt':'kotlin','sh':'shell','bash':'shell','zsh':'shell',
+  'json':'json','xml':'xml','yaml':'yaml','yml':'yaml','toml':'ini','ini':'ini','cfg':'ini','conf':'ini',
+  'css':'css','scss':'scss','sql':'sql','md':'markdown',
+  'dockerfile':'dockerfile','makefile':'makefile',
+  'log':'plaintext','txt':'plaintext','csv':'plaintext','tsv':'plaintext',
+  'yaml':'yaml','yml':'yaml','env':'plaintext','properties':'ini',
+  'diff':'diff','patch':'diff',
+};
+
 const Term = () => {
 
     const [searchParams] = useSearchParams();
@@ -35,6 +66,10 @@ const Term = () => {
     const [previewVisible, setPreviewVisible] = useState(false);
     const [previewUrl, setPreviewUrl] = useState('');
     const [previewTitle, setPreviewTitle] = useState('');
+    const [previewType, setPreviewType] = useState('image'); // image | pdf | html | md | code
+    const [markdownContent, setMarkdownContent] = useState('');
+    const [textContent, setTextContent] = useState('');
+    const [textLanguage, setTextLanguage] = useState('plaintext');
 
     const [term, setTerm] = useState();
     const [fitAddon, setFitAddon] = useState();
@@ -81,12 +116,54 @@ const Term = () => {
         });
     };
 
-    const doPreview = (filePath) => {
+    const doPreview = async (filePath) => {
         const token = getToken();
-        const url = `${server}/sessions/${sessionIdRef.current}/preview?file=${encodeURIComponent(filePath)}&X-Auth-Token=${token}&t=${Date.now()}`;
-        setPreviewUrl(url);
+        const ext = filePath.split('.').pop().toLowerCase();
+        const apiUrl = `${server}/sessions/${sessionIdRef.current}/preview?file=${encodeURIComponent(filePath)}&X-Auth-Token=${token}&t=${Date.now()}`;
         setPreviewTitle(filePath);
-        setPreviewVisible(true);
+
+        if (IMAGE_EXTENSIONS.has(ext)) {
+            setPreviewType('image');
+            setPreviewUrl(apiUrl);
+            setPreviewVisible(true);
+            return;
+        }
+        if (ext === 'pdf') {
+            setPreviewType('pdf');
+            setPreviewUrl(apiUrl);
+            setPreviewVisible(true);
+            return;
+        }
+        if (ext === 'html') {
+            // HTML 安全：后端已返回 text/plain，前端再加 iframe sandbox 双重防护
+            setPreviewType('html');
+            setPreviewUrl(apiUrl);
+            setPreviewVisible(true);
+            return;
+        }
+        if (ext === 'md') {
+            try {
+                const resp = await fetch(apiUrl);
+                const text = await resp.text();
+                setMarkdownContent(text);
+                setPreviewType('md');
+                setPreviewVisible(true);
+            } catch (e) {
+                message.error('加载 Markdown 文件失败');
+            }
+            return;
+        }
+        // 代码/文本文件
+        try {
+            const resp = await fetch(apiUrl);
+            const text = await resp.text();
+            setTextContent(text);
+            setTextLanguage(EXT_TO_MONACO_LANG[ext] || 'plaintext');
+            setPreviewType('code');
+            setPreviewVisible(true);
+        } catch (e) {
+            message.error('加载文件失败');
+        }
     };
 
     const formatSize = (bytes) => {
@@ -609,15 +686,53 @@ const Term = () => {
                 open={previewVisible}
                 footer={null}
                 onCancel={() => setPreviewVisible(false)}
-                width="auto"
+                width={previewType === 'code' ? '90%' : 'auto'}
                 destroyOnClose
                 centered
-                styles={{body: {padding: 0, display: 'flex', justifyContent: 'center', backgroundColor: '#fff'}}}
+                styles={{body: previewType === 'image' ? {padding: 0, display: 'flex', justifyContent: 'center', backgroundColor: '#fff'} : {padding: 0}}}
             >
-                {previewUrl && <img src={previewUrl} alt={previewTitle}
-                    style={{display: 'block'}}
-                    onError={() => message.error('图片加载失败，请检查路径是否正确')}
-                />}
+                {previewType === 'image' && previewUrl && (
+                    <img src={previewUrl} alt={previewTitle}
+                        style={{display: 'block', maxWidth: '90vw', maxHeight: '80vh'}}
+                        onError={() => message.error('图片加载失败，请检查路径是否正确')}
+                    />
+                )}
+                {previewType === 'pdf' && previewUrl && (
+                    <iframe src={previewUrl} title={previewTitle}
+                        style={{width: '100%', height: '80vh', border: 'none'}}
+                    />
+                )}
+                {previewType === 'html' && previewUrl && (
+                    <iframe src={previewUrl} title={previewTitle}
+                        style={{width: '100%', height: '80vh', border: 'none'}}
+                        sandbox
+                    />
+                )}
+                {previewType === 'md' && (
+                    <div style={{padding: 16, maxHeight: '80vh', overflow: 'auto', fontSize: 14, lineHeight: 1.6}}>
+                        <Suspense fallback={<div style={{padding: 20, textAlign: 'center', color: '#888'}}>加载中...</div>}>
+                            <ReactMarkdown remarkPlugins={[RemarkGfm]}>{markdownContent}</ReactMarkdown>
+                        </Suspense>
+                    </div>
+                )}
+                {previewType === 'code' && (
+                    <div style={{height: '70vh', width: '100%'}}>
+                        <Suspense fallback={<div style={{padding: 20, textAlign: 'center', color: '#888'}}>加载中...</div>}>
+                            <MonacoEditor
+                                language={textLanguage}
+                                value={textContent}
+                                options={{
+                                    readOnly: true,
+                                    minimap: {enabled: false},
+                                    scrollBeyondLastLine: false,
+                                    fontSize: 13,
+                                    automaticLayout: true,
+                                    wordWrap: 'on',
+                                }}
+                            />
+                        </Suspense>
+                    </div>
+                )}
             </Modal>
 
             <Drawer

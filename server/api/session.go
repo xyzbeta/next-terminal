@@ -339,7 +339,7 @@ func (api SessionApi) SessionDownloadEndpoint(c echo.Context) error {
 
 		dstFile, err := nextSession.NextTerminal.SftpClient.Open(file)
 		if err != nil {
-			log.Warn("图片预览 SFTP 打开失败", log.String("sessionId", sessionId), log.String("file", file), log.NamedError("err", err))
+			log.Warn("文件预览 SFTP 打开失败", log.String("sessionId", sessionId), log.String("file", file), log.NamedError("err", err))
 			return err
 		}
 
@@ -384,6 +384,13 @@ func (api SessionApi) SessionPreviewEndpoint(c echo.Context) error {
 		contentType = "image/svg+xml"
 	case ".bmp":
 		contentType = "image/bmp"
+	case ".pdf":
+		contentType = "application/pdf"
+	case ".md":
+		contentType = "text/plain; charset=utf-8"
+	case ".html":
+		// 安全：始终以纯文本返回 HTML 文件，避免浏览器执行远程脚本
+		contentType = "text/plain; charset=utf-8"
 	}
 
 	if "ssh" == s.Protocol {
@@ -406,7 +413,7 @@ func (api SessionApi) SessionPreviewEndpoint(c echo.Context) error {
 		}
 		dstFile, err := nextSession.NextTerminal.SftpClient.Open(file)
 		if err != nil {
-			log.Warn("图片预览 SFTP 打开失败", log.String("sessionId", sessionId), log.String("file", file), log.NamedError("err", err))
+			log.Warn("文件预览 SFTP 打开失败", log.String("sessionId", sessionId), log.String("file", file), log.NamedError("err", err))
 			return err
 		}
 		defer dstFile.Close()

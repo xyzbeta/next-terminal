@@ -1,5 +1,9 @@
-.*
-data
-logs
-playground
-web/node_modules/
+node_modules
+web/node_modules
+.git
+*.tar.gz
+next-terminal
+server/resource/build
+.claude/
+data/
+logs/
