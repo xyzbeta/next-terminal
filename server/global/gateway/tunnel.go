@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"next-terminal/server/log"
 )
 
 type Tunnel struct {
@@ -48,8 +49,22 @@ func (r *Tunnel) Open(sshClient *ssh.Client) {
 		r.remoteConnections = append(r.remoteConnections, remoteConn)
 		r.mu.Unlock()
 
-		go copyConn(localConn, remoteConn)
-		go copyConn(remoteConn, localConn)
+		go func() {
+			defer func() {
+				if err := recover(); err != nil {
+					log.Error("网关隧道 copyConn goroutine panic", log.String("panic", fmt.Sprintf("%v", err)))
+				}
+			}()
+			copyConn(localConn, remoteConn)
+		}()
+		go func() {
+			defer func() {
+				if err := recover(); err != nil {
+					log.Error("网关隧道 copyConn goroutine panic", log.String("panic", fmt.Sprintf("%v", err)))
+				}
+			}()
+			copyConn(remoteConn, localConn)
+		}()
 	}
 }
 

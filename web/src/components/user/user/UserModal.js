@@ -18,7 +18,7 @@ const UserModal = ({visible, handleOk, handleCancel, confirmLoading, id}) => {
 
     let rolesQuery = useQuery('rolesQuery', roleApi.GetAll);
 
-    useQuery('userQuery', () => userApi.getById(id), {
+    useQuery(['userQuery', id], () => userApi.getById(id), {
         enabled: visible && strings.hasText(id),
         onSuccess: (data) => {
             if (data.roles === null) {

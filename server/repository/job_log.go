@@ -23,7 +23,7 @@ func (r jobLogRepository) FindByJobId(c context.Context, jobId string, pageIndex
 	if err != nil {
 		return nil, 0, err
 	}
-	err = r.GetDB(c).Where("job_id = ?", jobId).Order("timestamp desc").Find(&o).Offset((pageIndex - 1) * pageSize).Limit(pageSize).Error
+	err = r.GetDB(c).Where("job_id = ?", jobId).Order("timestamp desc").Offset((pageIndex - 1) * pageSize).Limit(pageSize).Find(&o).Error
 	if o == nil {
 		o = make([]model.JobLog, 0)
 	}

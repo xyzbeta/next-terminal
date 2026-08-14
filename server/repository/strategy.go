@@ -54,6 +54,10 @@ func (r strategyRepository) Find(c context.Context, pageIndex, pageSize int, nam
 func (r strategyRepository) DeleteById(c context.Context, id string) error {
 	return r.GetDB(c).Where("id = ?", id).Delete(model.Strategy{}).Error
 }
+func (r strategyRepository) DeleteByIdIn(c context.Context, ids []string) error {
+	return r.GetDB(c).Where("id in ?", ids).Delete(model.Strategy{}).Error
+}
+
 
 func (r strategyRepository) Create(c context.Context, m *model.Strategy) error {
 	return r.GetDB(c).Create(m).Error

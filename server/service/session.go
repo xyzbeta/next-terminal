@@ -70,11 +70,9 @@ func (service sessionService) DeleteByIds(c context.Context, sessionIds []string
 		if err := os.RemoveAll(path.Join(recordingPath, sessionIds[i])); err != nil {
 			return err
 		}
-		if err := repository.SessionRepository.DeleteById(c, sessionIds[i]); err != nil {
-			return err
-		}
 	}
-	return nil
+	// 批量删除（原实现逐条 DELETE，清理大量离线会话时产生数千次单条 SQL）
+	return repository.SessionRepository.DeleteByIds(c, sessionIds)
 }
 
 func (service sessionService) ReviewedAll() error {

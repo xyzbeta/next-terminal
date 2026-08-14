@@ -108,6 +108,10 @@ func (r commandRepository) UpdateById(c context.Context, o *model.Command, id st
 func (r commandRepository) DeleteById(c context.Context, id string) error {
 	return r.GetDB(c).Where("id = ?", id).Delete(&model.Command{}).Error
 }
+func (r commandRepository) DeleteByIdIn(c context.Context, ids []string) error {
+	return r.GetDB(c).Where("id in ?", ids).Delete(&model.Command{}).Error
+}
+
 
 func (r commandRepository) FindAll(c context.Context) (o []model.Command, err error) {
 	err = r.GetDB(c).Find(&o).Error

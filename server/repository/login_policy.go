@@ -46,7 +46,7 @@ func (r loginPolicyRepository) Find(c context.Context, pageIndex, pageSize int, 
 		field = "login_policies.priority"
 	}
 
-	err = db.Order(field + " " + order).Find(&o).Offset((pageIndex - 1) * pageSize).Limit(pageSize).Error
+	err = db.Order(field + " " + order).Offset((pageIndex - 1) * pageSize).Limit(pageSize).Find(&o).Error
 	if o == nil {
 		o = make([]model.LoginPolicy, 0)
 	}

@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"next-terminal/server/branding"
 	"next-terminal/server/config"
@@ -135,6 +136,13 @@ func Run() error {
 	if config.GlobalCfg.Sshd.Enable {
 		go sshd.Sshd.Serve()
 	}
+
+	// HTTP 超时防护：慢速请求兜底。WS 端点升级后 hijack，不受影响；
+	// 不设 WriteTimeout——文件下载为流式长响应，会被误杀
+	app.Server.Server.ReadHeaderTimeout = 10 * time.Second
+	app.Server.Server.ReadTimeout = 30 * time.Second
+	app.Server.Server.IdleTimeout = 120 * time.Second
+	app.Server.Server.MaxHeaderBytes = 1 << 20
 
 	if config.GlobalCfg.Server.Cert != "" && config.GlobalCfg.Server.Key != "" {
 		return app.Server.StartTLS(config.GlobalCfg.Server.Addr, config.GlobalCfg.Server.Cert, config.GlobalCfg.Server.Key)

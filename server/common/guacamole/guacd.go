@@ -126,7 +126,7 @@ func (opt *Instruction) String() string {
 	return opt.ProtocolForm
 }
 
-func (opt *Instruction) Parse(content string) Instruction {
+func (opt *Instruction) Parse(content string) (Instruction, error) {
 	if strings.LastIndex(content, ";") > 0 {
 		content = strings.TrimRight(content, ";")
 	}
@@ -135,9 +135,13 @@ func (opt *Instruction) Parse(content string) Instruction {
 	var args = make([]string, len(messages))
 	for i := range messages {
 		lm := strings.Split(messages[i], ".")
+		if len(lm) != 2 {
+			// guacd 畸形帧防护：此前直接取 lm[1] 会 index out of range panic 击穿进程
+			return Instruction{}, fmt.Errorf("非法 guacamole 指令段: %q", messages[i])
+		}
 		args[i] = lm[1]
 	}
-	return NewInstruction(args[0], args[1:]...)
+	return NewInstruction(args[0], args[1:]...), nil
 }
 
 type Tunnel struct {
@@ -250,6 +254,8 @@ func (opt *Tunnel) WriteInstructionAndFlush(instruction Instruction) error {
 func (opt *Tunnel) WriteAndFlush(p []byte) (int, error) {
 	opt.writeMutex.Lock()
 	defer opt.writeMutex.Unlock()
+	// 写 deadline 防悬挂：guacd 僵死（写缓冲塞满/录屏盘满）时写操作不再永久阻塞
+	_ = opt.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	nn, err := opt.writer.Write(p)
 	if err != nil {
 		return nn, err
@@ -266,7 +272,7 @@ func (opt *Tunnel) ReadInstruction() (instruction Instruction, err error) {
 	if err != nil {
 		return instruction, err
 	}
-	return instruction.Parse(string(msg)), err
+	return instruction.Parse(string(msg))
 }
 
 func (opt *Tunnel) Read() (p []byte, err error) {
@@ -275,7 +281,6 @@ func (opt *Tunnel) Read() (p []byte, err error) {
 		return
 	}
 	s := string(data)
-	//fmt.Printf("<- %v \n", s)
 	if s == "rate=44100,channels=2;" {
 		return make([]byte, 0), nil
 	}
@@ -283,9 +288,10 @@ func (opt *Tunnel) Read() (p []byte, err error) {
 		return make([]byte, 0), nil
 	}
 	if s == "5.audio,1.1,31.audio/L16;" {
-		s += "rate=44100,channels=2;"
+		data = append(data, []byte("rate=44100,channels=2;")...)
 	}
-	return []byte(s), err
+	// 直接返回原始字节（原实现 string(data)→[]byte(s) 每帧双拷贝，RDP 图像帧达 MB 级）
+	return data, err
 }
 
 func (opt *Tunnel) expect(opcode string) (instruction Instruction, err error) {

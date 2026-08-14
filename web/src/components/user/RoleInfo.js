@@ -8,7 +8,7 @@ import strings from "../../utils/strings";
 const api = roleApi;
 
 const RoleInfo = ({active, id}) => {
-    let roleQuery = useQuery('roleQuery', () => api.getById(id), {
+    let roleQuery = useQuery(['roleQuery', id], () => api.getById(id), {
         enabled: active && strings.hasText(id),
     });
     let menuQuery = useQuery('menuQuery', permissionApi.getMenus, {

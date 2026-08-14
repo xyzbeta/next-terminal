@@ -36,7 +36,7 @@ const Stats = ({sessionId, visible, queryInterval = 5000}) => {
     let [stats, setStats] = useState(defaultStats);
     let [prevStats, setPrevStats] = useState({});
 
-    useQuery("stats", () => sessionApi.stats(sessionId), {
+    useQuery(["stats", sessionId], () => sessionApi.stats(sessionId), {
         refetchInterval: queryInterval,
         enabled: visible,
         onSuccess: (data) => {

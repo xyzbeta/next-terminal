@@ -6,6 +6,7 @@ import (
 	"next-terminal/server/common"
 	"next-terminal/server/common/nt"
 	"strings"
+	"sync"
 	"time"
 
 	"next-terminal/server/log"
@@ -37,10 +38,22 @@ func (r CheckAssetStatusJob) Run() {
 		return
 	}
 
-	msgChan := make(chan string)
+	// 并发上限：每资产一个 SSH 连接，资产多时防止连接数与 goroutine 数瞬间翻倍
+	sem := make(chan struct{}, 10)
+	results := make([]string, len(assets))
+	var wg sync.WaitGroup
 	for i := range assets {
 		asset := assets[i]
-		go func() {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer func() {
+				<-sem
+				wg.Done()
+				if err := recover(); err != nil {
+					log.Error("资产存活检测 goroutine panic", log.String("panic", fmt.Sprintf("%v", err)))
+				}
+			}()
 			t1 := time.Now()
 			var (
 				msg  string
@@ -63,14 +76,12 @@ func (r CheckAssetStatusJob) Run() {
 			}
 			_ = repository.AssetRepository.UpdateActiveById(context.TODO(), active, message, asset.ID)
 			log.Debug(msg)
-			msgChan <- msg
-		}()
+			results[i] = msg
+		}(i)
 	}
+	wg.Wait()
 
-	var message = ""
-	for i := 0; i < len(assets); i++ {
-		message += <-msgChan + "\n"
-	}
+	message := strings.Join(results, "\n")
 
 	_ = repository.JobRepository.UpdateLastUpdatedById(context.TODO(), r.ID)
 	jobLog := model.JobLog{

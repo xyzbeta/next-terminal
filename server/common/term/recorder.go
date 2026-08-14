@@ -1,6 +1,7 @@
 package term
 
 import (
+	"bufio"
 	"encoding/json"
 	"os"
 	"time"
@@ -24,10 +25,14 @@ type Header struct {
 
 type Recorder struct {
 	File      *os.File
+	Writer    *bufio.Writer // 缓冲写出：录屏为批量写路径，减少裸写 syscall，慢盘不再阻塞 flush
 	Timestamp int
 }
 
 func (recorder *Recorder) Close() {
+	if recorder.Writer != nil {
+		_ = recorder.Writer.Flush()
+	}
 	if recorder.File != nil {
 		_ = recorder.File.Close()
 	}
@@ -40,10 +45,10 @@ func (recorder *Recorder) WriteHeader(header *Header) (err error) {
 		return
 	}
 
-	if _, err := recorder.File.Write(p); err != nil {
+	if _, err := recorder.Writer.Write(p); err != nil {
 		return err
 	}
-	if _, err := recorder.File.Write([]byte("\n")); err != nil {
+	if _, err := recorder.Writer.Write([]byte("\n")); err != nil {
 		return err
 	}
 
@@ -66,10 +71,10 @@ func (recorder *Recorder) WriteData(data string) (err error) {
 	if s, err = json.Marshal(row); err != nil {
 		return
 	}
-	if _, err := recorder.File.Write(s); err != nil {
+	if _, err := recorder.Writer.Write(s); err != nil {
 		return err
 	}
-	if _, err := recorder.File.Write([]byte("\n")); err != nil {
+	if _, err := recorder.Writer.Write([]byte("\n")); err != nil {
 		return err
 	}
 	return
@@ -95,6 +100,7 @@ func NewRecorder(recordingPath, term string, h int, w int) (recorder *Recorder, 
 	}
 
 	recorder.File = file
+	recorder.Writer = bufio.NewWriterSize(file, 32*1024)
 
 	header := &Header{
 		Title:     "",

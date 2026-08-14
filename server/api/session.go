@@ -22,7 +22,6 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
-	"github.com/pkg/sftp"
 )
 
 type SessionApi struct{}
@@ -397,20 +396,17 @@ func (api SessionApi) SessionPreviewEndpoint(c echo.Context) error {
 		if nextSession == nil {
 			return errors.New("获取会话失败")
 		}
-		if nextSession.NextTerminal.SftpClient == nil {
-			sftpClient, err := sftp.NewClient(nextSession.NextTerminal.SshClient)
-			if err != nil {
-				return err
-			}
-			nextSession.NextTerminal.SftpClient = sftpClient
+		sftpClient, err := nextSession.NextTerminal.GetSftpClient()
+		if err != nil {
+			return err
 		}
 		// 相对路径解析：通过 SFTP RealPath 获取实际工作目录
 		if !strings.HasPrefix(file, "/") {
-			if homeDir, err := nextSession.NextTerminal.SftpClient.RealPath("."); err == nil {
+			if homeDir, err := sftpClient.RealPath("."); err == nil {
 				file = path.Join(homeDir, file)
 			}
 		}
-		dstFile, err := nextSession.NextTerminal.SftpClient.Open(file)
+		dstFile, err := sftpClient.Open(file)
 		if err != nil {
 			log.Warn("文件预览 SFTP 打开失败", log.String("sessionId", sessionId), log.String("file", file), log.NamedError("err", err))
 			return err
@@ -466,22 +462,19 @@ func (api SessionApi) SessionLsEndpoint(c echo.Context) error {
 			return errors.New("获取会话失败")
 		}
 
-		if nextSession.NextTerminal.SftpClient == nil {
-			sftpClient, err := sftp.NewClient(nextSession.NextTerminal.SshClient)
-			if err != nil {
-				return err
-			}
-			nextSession.NextTerminal.SftpClient = sftpClient
+		sftpClient, err := nextSession.NextTerminal.GetSftpClient()
+		if err != nil {
+			return err
 		}
 
 		// 相对路径解析：通过 SFTP RealPath 获取实际工作目录
 		if !strings.HasPrefix(remoteDir, "/") {
-			if homeDir, err := nextSession.NextTerminal.SftpClient.RealPath("."); err == nil {
+			if homeDir, err := sftpClient.RealPath("."); err == nil {
 				remoteDir = path.Join(homeDir, remoteDir)
 			}
 		}
 
-		fileInfos, err := nextSession.NextTerminal.SftpClient.ReadDir(remoteDir)
+		fileInfos, err := sftpClient.ReadDir(remoteDir)
 		if err != nil {
 			log.Warn("目录列表 SFTP 读取失败", log.String("sessionId", sessionId), log.String("dir", remoteDir), log.NamedError("err", err))
 			return err
@@ -689,6 +682,12 @@ func (api SessionApi) SessionStatsEndpoint(c echo.Context) error {
 		return err
 	}
 
+	// 会话归属校验：非管理员仅可拉取本人会话的远端主机统计（附带执行 SSH 命令，防越权）
+	user, _ := GetCurrentAccount(c)
+	if user != nil && user.Type != nt.TypeAdmin && user.ID != s.Creator {
+		return Fail(c, -1, "无权限访问此会话")
+	}
+
 	if "ssh" != s.Protocol {
 		return Fail(c, -1, "不支持当前协议")
 	}
@@ -704,5 +703,3 @@ func (api SessionApi) SessionStatsEndpoint(c echo.Context) error {
 	}
 	return Success(c, stats)
 }
-
-

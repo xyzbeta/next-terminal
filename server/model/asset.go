@@ -9,7 +9,7 @@ type AssetProto string
 type Asset struct {
 	ID              string          `gorm:"primary_key,type:varchar(36)" json:"id"`
 	Name            string          `gorm:"type:varchar(500)" json:"name"`
-	Protocol        string          `gorm:"type:varchar(20)" json:"protocol"`
+	Protocol        string          `gorm:"index,type:varchar(20)" json:"protocol"`
 	IP              string          `gorm:"type:varchar(200)" json:"ip"`
 	Port            int             `json:"port"`
 	AccountType     string          `gorm:"type:varchar(20)" json:"accountType"`
@@ -19,7 +19,7 @@ type Asset struct {
 	PrivateKey      string          `gorm:"type:text" json:"privateKey"`
 	Passphrase      string          `gorm:"type:varchar(500)" json:"passphrase"`
 	Description     string          `json:"description"`
-	Active          bool            `json:"active"`
+	Active          bool            `gorm:"index" json:"active"`
 	ActiveMessage   string          `gorm:"type:varchar(200)" json:"activeMessage"`
 	Created         common.JsonTime `json:"created"`
 	LastAccessTime  common.JsonTime `json:"lastAccessTime"`

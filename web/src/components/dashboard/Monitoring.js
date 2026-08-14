@@ -52,7 +52,9 @@ const Monitoring = () => {
 
     let monitorQuery = useQuery('getMonitorData', monitorApi.getData, {
         initialData: initData,
-        refetchInterval: 5000
+        refetchInterval: 5000,
+        // 轮询查询禁用自动重试：后端异常时默认 retry:3 会放大为每 5s×3 次请求 + 错误 toast 风暴
+        retry: false
     });
 
     let loadPercent = monitorQuery.data?.loadStat['percent'];

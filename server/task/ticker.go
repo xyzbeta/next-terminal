@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"fmt"
 	"github.com/shirou/gopsutil/v3/load"
 	"next-terminal/server/common/nt"
 	"next-terminal/server/service"
@@ -19,6 +20,13 @@ import (
 	"next-terminal/server/global/stat"
 )
 
+// recoverPanic 定时任务 goroutine panic 兜底，防止单点 panic 击穿进程
+func recoverPanic(name string) {
+	if err := recover(); err != nil {
+		log.Error("ticker goroutine panic", log.String("name", name), log.String("panic", fmt.Sprintf("%v", err)))
+	}
+}
+
 type Ticker struct {
 }
 
@@ -31,6 +39,7 @@ func (t *Ticker) SetupTicker() {
 	// 每隔一小时删除一次未使用的会话信息
 	unUsedSessionTicker := time.NewTicker(time.Minute * 60)
 	go func() {
+		defer recoverPanic("deleteUnUsedSession")
 		for range unUsedSessionTicker.C {
 			t.deleteUnUsedSession()
 		}
@@ -39,6 +48,7 @@ func (t *Ticker) SetupTicker() {
 	// 每隔6小时删除超过时长限制的会话
 	timeoutSessionTicker := time.NewTicker(time.Hour * 6)
 	go func() {
+		defer recoverPanic("deleteOutTime")
 		for range timeoutSessionTicker.C {
 			deleteOutTimeSession()
 			deleteOutTimeLoginLog()
@@ -48,6 +58,7 @@ func (t *Ticker) SetupTicker() {
 
 	systemLoader := time.NewTicker(time.Second * 5)
 	go func() {
+		defer recoverPanic("systemLoad")
 		for range systemLoader.C {
 			err := systemLoad()
 			if err != nil {
@@ -265,11 +276,12 @@ func deleteOutTimeLoginLog() {
 	}
 
 	if len(loginLogs) > 0 {
+		var ids []string
 		for i := range loginLogs {
-			err := repository.LoginLogRepository.DeleteById(context.TODO(), loginLogs[i].ID)
-			if err != nil {
-				log.Warn("删除登录日志失败", log.NamedError("err", err))
-			}
+			ids = append(ids, loginLogs[i].ID)
+		}
+		if err := repository.LoginLogRepository.DeleteByIdIn(context.TODO(), ids); err != nil {
+			log.Warn("批量删除登录日志失败", log.NamedError("err", err))
 		}
 	}
 }
@@ -293,11 +305,12 @@ func deleteOutTimeJobLog() {
 	}
 
 	if len(jobLogs) > 0 {
+		var ids []string
 		for i := range jobLogs {
-			err := repository.JobLogRepository.DeleteById(context.TODO(), jobLogs[i].ID)
-			if err != nil {
-				log.Error("删除计划日志失败", log.NamedError("err", err))
-			}
+			ids = append(ids, jobLogs[i].ID)
+		}
+		if err := repository.JobLogRepository.DeleteByIdIn(context.TODO(), ids); err != nil {
+			log.Error("批量删除计划日志失败", log.NamedError("err", err))
 		}
 	}
 }

@@ -54,6 +54,10 @@ func (r tenantRepository) Find(c context.Context, pageIndex, pageSize int, name,
 func (r tenantRepository) DeleteById(c context.Context, id string) error {
 	return r.GetDB(c).Where("id = ?", id).Delete(model.Tenant{}).Error
 }
+func (r tenantRepository) DeleteByIdIn(c context.Context, ids []string) error {
+	return r.GetDB(c).Where("id in ?", ids).Delete(model.Tenant{}).Error
+}
+
 
 func (r tenantRepository) Create(c context.Context, m *model.Tenant) error {
 	return r.GetDB(c).Create(m).Error

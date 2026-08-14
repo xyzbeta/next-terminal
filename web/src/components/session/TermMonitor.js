@@ -109,11 +109,21 @@ const TermMonitor = () => {
                     break;
             }
         }
-        return [webSocket, fitAddon];
+
+        // 网络层断开感知：原实现无 onclose，连接意外断开时页面静默冻结
+        webSocket.onclose = (e) => {
+            if (pendingData.length > 0) {
+                if (rafId) cancelAnimationFrame(rafId);
+                flushData();
+            }
+            term.writeln(`\x1B[1;3;31m连接已断开 (code: ${e.code})\x1B[0m `);
+        }
+
+        return [webSocket, fitAddon, term];
     }
 
     useEffect(() => {
-        let [webSocket, fitAddon] = init(sessionId);
+        let [webSocket, fitAddon, term] = init(sessionId);
         let resize = debounce(() => {
             onWindowResize(fitAddon);
         });
@@ -121,6 +131,10 @@ const TermMonitor = () => {
         return () => {
             if (webSocket) {
                 webSocket.close();
+            }
+            // 释放 xterm 实例（原实现泄漏完整终端实例：scrollback buffer + DOM 引用）
+            if (term) {
+                term.dispose();
             }
             window.removeEventListener('resize', resize);
         }

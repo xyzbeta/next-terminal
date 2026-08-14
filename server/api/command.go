@@ -80,10 +80,8 @@ func (api CommandApi) CommandUpdateEndpoint(c echo.Context) error {
 func (api CommandApi) CommandDeleteEndpoint(c echo.Context) error {
 	id := c.Param("id")
 	split := strings.Split(id, ",")
-	for i := range split {
-		if err := repository.CommandRepository.DeleteById(context.TODO(), split[i]); err != nil {
-			return err
-		}
+	if err := repository.CommandRepository.DeleteByIdIn(context.TODO(), split); err != nil {
+		return err
 	}
 	return Success(c, nil)
 }

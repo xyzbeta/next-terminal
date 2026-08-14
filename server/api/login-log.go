@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"next-terminal/server/common/maps"
+	"next-terminal/server/global/cache"
 	"strconv"
 	"strings"
 
@@ -44,16 +45,13 @@ func (api LoginLogApi) LoginLogDeleteEndpoint(c echo.Context) error {
 }
 
 func (api LoginLogApi) LoginLogClearEndpoint(c echo.Context) error {
-	loginLogs, err := repository.LoginLogRepository.FindAllLoginLogs(context.TODO())
-	if err != nil {
+	// 直接批量清空日志（原实现先全量加载所有日志仅为了取 ID，10 万行 ≈ 10 万条记录载入内存）
+	if err := repository.LoginLogRepository.DeleteAll(context.TODO()); err != nil {
 		return err
 	}
-	var tokens = make([]string, 0)
-	for i := range loginLogs {
-		tokens = append(tokens, loginLogs[i].ID)
-	}
-
-	if err := service.UserService.DeleteLoginLogs(tokens); err != nil {
+	// 清空日志即所有登录会话失效：清空 token 缓存并修正在线状态
+	cache.TokenManager.Flush()
+	if err := service.UserService.FixUserOnlineState(); err != nil {
 		return err
 	}
 	return Success(c, nil)

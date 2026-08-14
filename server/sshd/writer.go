@@ -54,7 +54,7 @@ func (w *Writer) Write(p []byte) (n int, err error) {
 					return 0, err
 				}
 			}
-			api.SendObData(w.sessionId, s)
+			api.SendObData(w.sessionId, []byte(s))
 		}
 	} else {
 		if w.backTerm.Recorder != nil {
@@ -63,7 +63,7 @@ func (w *Writer) Write(p []byte) (n int, err error) {
 				return 0, err
 			}
 		}
-		api.SendObData(w.sessionId, s)
+		api.SendObData(w.sessionId, []byte(s))
 	}
 
 	return w.frontSshSess.Write(p)

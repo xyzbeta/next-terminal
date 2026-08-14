@@ -236,14 +236,19 @@ func (gui Gui) handleAccessAsset(sess ssh.Session, sessionId string) (err error)
 	}
 
 	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Error("窗口大小监控 goroutine panic", log.String("panic", fmt.Sprintf("%v", err)))
+			}
+			// ==== 修改数据库中的会话状态为已断开,修复用户直接关闭窗口时会话状态不正确的问题 ====
+			service.SessionService.CloseSessionById(sessionId, api.Normal, "用户正常退出")
+			// ==== 修改数据库中的会话状态为已断开,修复用户直接关闭窗口时会话状态不正确的问题 ====
+		}()
 		log.Debug("开启窗口大小监控...")
 		for win := range winCh {
 			_ = sshSession.WindowChange(win.Height, win.Width)
 		}
 		log.Debug("退出窗口大小监控")
-		// ==== 修改数据库中的会话状态为已断开,修复用户直接关闭窗口时会话状态不正确的问题 ====
-		service.SessionService.CloseSessionById(sessionId, api.Normal, "用户正常退出")
-		// ==== 修改数据库中的会话状态为已断开,修复用户直接关闭窗口时会话状态不正确的问题 ====
 	}()
 
 	// ==== 修改数据库中的会话状态为已连接 ====

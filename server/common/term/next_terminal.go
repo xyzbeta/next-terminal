@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"io"
+	"sync"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -16,6 +17,8 @@ type NextTerminal struct {
 	SftpClient   *sftp.Client
 	Recorder     *Recorder
 	StdoutReader *bufio.Reader
+
+	sftpMutex sync.Mutex // SftpClient 懒初始化锁，防止并发创建竞态与旧 client 泄漏
 }
 
 func NewNextTerminal(ip string, port int, username, password, privateKey, passphrase string, rows, cols int, recording, term string, pipe bool) (*NextTerminal, error) {
@@ -74,6 +77,22 @@ func newNT(sshClient *ssh.Client, pipe bool, recording string, term string, rows
 	}
 
 	return &terminal, nil
+}
+
+// GetSftpClient 线程安全地获取（或懒创建）SFTP 客户端
+// 原实现多端点并发检查 nil 再赋值，存在竞态：重复创建 client 且旧实例永不 Close
+func (ret *NextTerminal) GetSftpClient() (*sftp.Client, error) {
+	ret.sftpMutex.Lock()
+	defer ret.sftpMutex.Unlock()
+	if ret.SftpClient != nil {
+		return ret.SftpClient, nil
+	}
+	client, err := sftp.NewClient(ret.SshClient)
+	if err != nil {
+		return nil, err
+	}
+	ret.SftpClient = client
+	return client, nil
 }
 
 func (ret *NextTerminal) Write(p []byte) (int, error) {

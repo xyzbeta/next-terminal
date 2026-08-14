@@ -39,7 +39,7 @@ const RoleModal = ({
 
     let [roleMenus, setRoleMenus] = useState([]);
 
-    useQuery('roleQuery', () => api.getById(id), {
+    useQuery(['roleQuery', id], () => api.getById(id), {
         enabled: visible && strings.hasText(id),
         onSuccess: (data) => {
             form.setFieldsValue(data);

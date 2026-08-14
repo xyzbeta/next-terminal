@@ -73,7 +73,7 @@ func (r userRepository) Find(c context.Context, pageIndex, pageSize int, usernam
 		field = "created"
 	}
 
-	err = db.Order("users." + field + " " + order).Find(&o).Offset((pageIndex - 1) * pageSize).Limit(pageSize).Error
+	err = db.Order("users." + field + " " + order).Offset((pageIndex - 1) * pageSize).Limit(pageSize).Find(&o).Error
 	if o == nil {
 		o = make([]model.UserForPage, 0)
 	}
@@ -151,11 +151,11 @@ func (r userRepository) DeleteBySource(c context.Context, source string) error {
 }
 
 func (r userRepository) CountOnlineUser(c context.Context) (total int64, err error) {
-	err = r.GetDB(c).Where("online = ?", true).Find(&model.User{}).Count(&total).Error
+	err = r.GetDB(c).Where("online = ?", true).Count(&total).Error
 	return
 }
 
 func (r userRepository) Count(c context.Context) (total int64, err error) {
-	err = r.GetDB(c).Find(&model.User{}).Count(&total).Error
+	err = r.GetDB(c).Count(&total).Error
 	return
 }

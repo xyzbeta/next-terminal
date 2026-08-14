@@ -60,7 +60,7 @@ func (r assetRepository) Find(c context.Context, pageIndex, pageSize int, name, 
 
 	if len(port) > 0 {
 		db = db.Where("assets.port = ?", port)
-		dbCounter = dbCounter.Where("assets.port = ?", ip)
+		dbCounter = dbCounter.Where("assets.port = ?", port)
 	}
 
 	if len(protocol) > 0 {
@@ -147,17 +147,17 @@ func (r assetRepository) DeleteAttrByAssetId(c context.Context, assetId string) 
 }
 
 func (r assetRepository) Count(c context.Context) (total int64, err error) {
-	err = r.GetDB(c).Find(&model.Asset{}).Count(&total).Error
+	err = r.GetDB(c).Count(&total).Error
 	return
 }
 
 func (r assetRepository) CountByActive(c context.Context, active bool) (total int64, err error) {
-	err = r.GetDB(c).Find(&model.Asset{}).Where("active = ?", active).Count(&total).Error
+	err = r.GetDB(c).Where("active = ?", active).Count(&total).Error
 	return
 }
 
 func (r assetRepository) CountByProtocol(c context.Context, protocol string) (total int64, err error) {
-	err = r.GetDB(c).Find(&model.Asset{}).Where("protocol = ?", protocol).Count(&total).Error
+	err = r.GetDB(c).Where("protocol = ?", protocol).Count(&total).Error
 	return
 }
 

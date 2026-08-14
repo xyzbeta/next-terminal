@@ -3,7 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
-	"sync"
+	"fmt"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -11,6 +11,7 @@ import (
 	"next-terminal/server/dto"
 	"next-terminal/server/global/session"
 	"next-terminal/server/log"
+	"next-terminal/server/service"
 )
 
 const (
@@ -19,20 +20,19 @@ const (
 	chanBufSize            = 64        // dataChan 缓冲大小
 	readChunkSize          = 4096      // SSH stdout 每次读取块大小
 	keepaliveInterval      = 30 * time.Second
-	keepaliveRetryInterval = 5 * time.Second  // 失败后快速重试间隔
-	keepaliveMaxFailures   = 3                 // 连续失败超过此阈值才关闭连接
+	keepaliveRetryInterval = 5 * time.Second // 失败后快速重试间隔
+	keepaliveMaxFailures   = 3               // 连续失败超过此阈值才关闭连接
 )
 
 type TermHandler struct {
 	sessionId    string
 	isRecording  bool
-	webSocket    *websocket.Conn
+	sess         *session.Session // 会话引用：所有 ws 写统一经 Session 的锁 + WriteDeadline
 	nextTerminal *term.NextTerminal
 	ctx          context.Context
 	cancel       context.CancelFunc
 	dataChan     chan []byte
 	tick         *time.Ticker
-	mutex        sync.Mutex
 	buf          bytes.Buffer
 }
 
@@ -40,10 +40,15 @@ func NewTermHandler(userId, assetId, sessionId string, isRecording bool, ws *web
 	ctx, cancel := context.WithCancel(context.Background())
 	tick := time.NewTicker(tickInterval)
 
+	sess := session.GlobalSessionManager.GetById(sessionId)
+	if sess == nil {
+		sess = &session.Session{ID: sessionId, WebSocket: ws}
+	}
+
 	return &TermHandler{
 		sessionId:    sessionId,
 		isRecording:  isRecording,
-		webSocket:    ws,
+		sess:         sess,
 		nextTerminal: nextTerminal,
 		ctx:          ctx,
 		cancel:       cancel,
@@ -53,9 +58,25 @@ func NewTermHandler(userId, assetId, sessionId string, isRecording bool, ws *web
 }
 
 func (r *TermHandler) Start() {
-	go r.readFormTunnel()
-	go r.writeToWebsocket()
-	go r.keepalive()
+	go func() {
+		defer r.recoverPanic("readFormTunnel")
+		r.readFormTunnel()
+	}()
+	go func() {
+		defer r.recoverPanic("writeToWebsocket")
+		r.writeToWebsocket()
+	}()
+	go func() {
+		defer r.recoverPanic("keepalive")
+		r.keepalive()
+	}()
+}
+
+// recoverPanic goroutine panic 兜底，防止单点 panic 击穿进程
+func (r *TermHandler) recoverPanic(name string) {
+	if err := recover(); err != nil {
+		log.Error("TermHandler goroutine panic", log.String("name", name), log.String("sessionId", r.sessionId), log.String("panic", fmt.Sprintf("%v", err)))
+	}
 }
 
 // keepalive 定期向远端 SSH 服务器发送心跳，检测僵死连接
@@ -73,9 +94,11 @@ func (r *TermHandler) keepalive() {
 			if err != nil {
 				failures++
 				if failures >= keepaliveMaxFailures {
-					// 连续失败超阈值，判定连接已断开
+					// 连续失败超阈值，判定连接已断开，走完整关闭链：
+					// 关 SSH、关 ws、移除会话条目、更新 DB 状态（原实现只关 SSH 通道，会话状态长期不一致）
 					log.Warn("SSH keepalive 连续失败，关闭连接", log.Int("failures", failures), log.String("sessionId", r.sessionId))
 					_ = r.nextTerminal.SshSession.Close()
+					service.SessionService.CloseSessionById(r.sessionId, TunnelClosed, "SSH 连接已断开")
 					return
 				}
 				// 快速重试：缩短间隔检测是否恢复
@@ -131,14 +154,14 @@ func (r *TermHandler) writeToWebsocket() {
 		case <-r.tick.C:
 			if !r.flush() {
 				log.Warn("WebSocket 写入失败，writeToWebsocket 退出(tick)", log.String("sessionId", r.sessionId))
-					return
+				return
 			}
 		case data := <-r.dataChan:
 			r.buf.Write(data)
 			if r.buf.Len() >= flushThreshold {
 				if !r.flush() {
 					log.Warn("WebSocket 写入失败，writeToWebsocket 退出(data)", log.String("sessionId", r.sessionId))
-						return
+					return
 				}
 			}
 		}
@@ -146,19 +169,20 @@ func (r *TermHandler) writeToWebsocket() {
 }
 
 // flush 将缓冲区数据写入 WebSocket、录屏和监控广播
+// 零拷贝路径：buf.Bytes() 视图直接写 ws（type 数字 + content 两段），不再 String/ToString 多次全量拷贝
 func (r *TermHandler) flush() bool {
-	s := r.buf.String()
-	if s == "" {
+	if r.buf.Len() == 0 {
 		return true
 	}
-	if err := r.SendMessageToWebSocket(dto.NewMessage(Data, s)); err != nil {
+	data := r.buf.Bytes()
+	if err := r.sess.WriteMessageBytes(Data, data); err != nil {
 		log.Warn("flush 发送 WebSocket 失败", log.String("sessionId", r.sessionId), log.NamedError("err", err))
-			return false
+		return false
 	}
 	if r.isRecording {
-		_ = r.nextTerminal.Recorder.WriteData(s)
+		_ = r.nextTerminal.Recorder.WriteData(string(data))
 	}
-	SendObData(r.sessionId, s)
+	SendObData(r.sessionId, data)
 	r.buf.Reset()
 	return true
 }
@@ -172,24 +196,22 @@ func (r *TermHandler) WindowChange(h int, w int) error {
 	return r.nextTerminal.WindowChange(h, w)
 }
 
+// SendMessageToWebSocket 控制消息（Ping/Closed 等）统一经 Session 写路径：
+// 与 flush 的 WriteMessageBytes、CloseSessionById 的 WriteString 共享同一把锁，
+// 消除 gorilla 并发写同一 ws.Conn 导致帧交错的风险
 func (r *TermHandler) SendMessageToWebSocket(msg dto.Message) error {
-	if r.webSocket == nil {
-		return nil
-	}
-	defer r.mutex.Unlock()
-	r.mutex.Lock()
-	// WriteDeadline 防止写阻塞卡死（浏览器断连等场景）
-	_ = r.webSocket.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	message := []byte(msg.ToString())
-	return r.webSocket.WriteMessage(websocket.BinaryMessage, message)
+	return r.sess.WriteMessage(msg)
 }
 
-func SendObData(sessionId, s string) {
+func SendObData(sessionId string, data []byte) {
 	nextSession := session.GlobalSessionManager.GetById(sessionId)
 	if nextSession != nil && nextSession.Observer != nil {
 		nextSession.Observer.Range(func(key string, ob *session.Session) {
-			if err := ob.WriteMessage(dto.NewMessage(Data, s)); err != nil {
+			if err := ob.WriteMessageBytes(Data, data); err != nil {
 				log.Warn("observer write failed", log.String("observerId", key), log.NamedError("err", err))
+				// 写失败（含 10s 超时）判定观察者已死亡：立即移除并关闭，
+				// 原实现保留死亡观察者导致每个 flush 都被 TCP 超时卡住，主会话输出停摆
+				nextSession.Observer.Del(key)
 			}
 		})
 	}

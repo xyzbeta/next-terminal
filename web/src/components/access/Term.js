@@ -90,6 +90,8 @@ const Term = () => {
     const pickerTimerRef = useRef(null);
     const pickerListRef = useRef(null);
     const sessionIdRef = useRef(''); // init 中设置，供组件层函数使用
+    const wsRef = useRef(null);      // 当前 WebSocket，供卸载/切换资产清理（state 闭包会过期）
+    const termRef = useRef(null);    // 当前 xterm 实例，供卸载时 dispose
 
     const lsAbortRef = useRef(null);
 
@@ -262,6 +264,7 @@ const Term = () => {
         xterm.loadAddon(fitAddon);
         fitAddon.fit();
         xterm.focus();
+        termRef.current = xterm;
 
         if (!assetId) {
             writeErrorMessage(xterm, `参数缺失，请关闭此页面后重新打开。`)
@@ -309,6 +312,7 @@ const Term = () => {
 
         let webSocket = new WebSocket(`${wsServer}/sessions/${sessionId}/ssh?${paramStr}`);
 	        webSocket.binaryType = 'arraybuffer';
+        wsRef.current = webSocket;
 
         let pingInterval;
         let pingSentAt = 0;
@@ -444,6 +448,18 @@ const Term = () => {
     useEffect(() => {
         document.title = assetName;
         init(assetId);
+        // 卸载/切换资产时才关闭 WebSocket 并释放 xterm：
+        // 原实现把 close 放在 resize effect 的 cleanup 中，窗口缩放即掐断 SSH 会话
+        return () => {
+            if (wsRef.current) {
+                wsRef.current.close();
+                wsRef.current = null;
+            }
+            if (termRef.current) {
+                termRef.current.dispose();
+                termRef.current = null;
+            }
+        };
     }, [assetId]);
 
     useEffect(() => {
@@ -465,9 +481,8 @@ const Term = () => {
         window.addEventListener('resize', resize);
 
         return () => {
-            if (websocket) {
-                websocket.close();
-            }
+            // 仅移除监听器：WebSocket 生命周期由 assetId effect 管理，
+            // 严禁在此 close（窗口缩放触发本 effect 重跑会掐断 SSH 会话）
             window.removeEventListener('resize', resize);
             window.removeEventListener('beforeunload', handleUnload);
         }

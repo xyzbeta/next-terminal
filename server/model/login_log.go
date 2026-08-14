@@ -9,10 +9,10 @@ type LoginLog struct {
 	Username        string          `gorm:"index,type:varchar(200)" json:"username"`
 	ClientIP        string          `gorm:"type:varchar(200)" json:"clientIp"`
 	ClientUserAgent string          `gorm:"type:varchar(500)" json:"clientUserAgent"`
-	LoginTime       common.JsonTime `json:"loginTime"`
-	LogoutTime      common.JsonTime `json:"logoutTime"`
+	LoginTime       common.JsonTime `gorm:"index" json:"loginTime"`
+	LogoutTime      common.JsonTime `gorm:"index" json:"logoutTime"`
 	Remember        bool            `json:"remember"`
-	State           string          `gorm:"type:varchar(1)" json:"state"` // 成功 1 失败 0
+	State           string          `gorm:"index,type:varchar(1)" json:"state"` // 成功 1 失败 0
 	Reason          string          `gorm:"type:varchar(500)" json:"reason"`
 }
 

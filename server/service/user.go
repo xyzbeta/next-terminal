@@ -339,21 +339,19 @@ func (service userService) DeleteUserById(userId string) error {
 }
 
 func (service userService) DeleteLoginLogs(tokens []string) error {
-	if len(tokens) > 0 {
-		for _, token := range tokens {
-			// 手动触发用户退出登录
-			if err := service.LogoutByToken(token); err != nil {
-				return err
-			}
-			// 移除缓存中的token
-			service.Logout(token)
-			// 删除登录日志
-			if err := repository.LoginLogRepository.DeleteById(context.TODO(), token); err != nil {
-				return err
-			}
-		}
+	if len(tokens) == 0 {
+		return nil
 	}
-	return nil
+	// 批量移除缓存中的 token
+	for _, token := range tokens {
+		service.Logout(token)
+	}
+	// 批量删除登录日志（原实现每条 3-4 次查询，改为单条批量 SQL）
+	if err := repository.LoginLogRepository.DeleteByIdIn(context.TODO(), tokens); err != nil {
+		return err
+	}
+	// 删除后统一修正用户在线状态（仅遍历在线用户，等价于原逐条 LogoutByToken 的最终状态）
+	return service.FixUserOnlineState()
 }
 
 func (service userService) SaveLoginLog(clientIP, clientUserAgent string, username string, success, remember bool, id, reason string) error {

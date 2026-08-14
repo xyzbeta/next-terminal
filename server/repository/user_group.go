@@ -42,7 +42,7 @@ func (r userGroupRepository) Find(c context.Context, pageIndex, pageSize int, na
 		field = "created"
 	}
 
-	err = db.Order("user_groups." + field + " " + order).Find(&o).Offset((pageIndex - 1) * pageSize).Limit(pageSize).Error
+	err = db.Order("user_groups." + field + " " + order).Offset((pageIndex - 1) * pageSize).Limit(pageSize).Find(&o).Error
 	if o == nil {
 		o = make([]model.UserGroupForPage, 0)
 	}

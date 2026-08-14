@@ -88,13 +88,12 @@ func (api SecurityApi) SecurityDeleteEndpoint(c echo.Context) error {
 	ids := c.Param("id")
 
 	split := strings.Split(ids, ",")
+	if err := repository.SecurityRepository.DeleteByIdIn(context.TODO(), split); err != nil {
+		return err
+	}
+	// 更新内存中的安全规则
 	for i := range split {
-		id := split[i]
-		if err := repository.SecurityRepository.DeleteById(context.TODO(), id); err != nil {
-			return err
-		}
-		// 更新内存中的安全规则
-		security.GlobalSecurityManager.Del(id)
+		security.GlobalSecurityManager.Del(split[i])
 	}
 
 	return Success(c, nil)

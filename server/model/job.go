@@ -23,9 +23,9 @@ func (r *Job) TableName() string {
 }
 
 type JobLog struct {
-	ID        string          `json:"id"`
-	Timestamp common.JsonTime `json:"timestamp"`
-	JobId     string          `json:"jobId"`
+	ID        string          `gorm:"primary_key,type:varchar(36)" json:"id"`
+	Timestamp common.JsonTime `gorm:"index" json:"timestamp"`
+	JobId     string          `gorm:"index,type:varchar(36)" json:"jobId"`
 	Message   string          `json:"message"`
 }
 

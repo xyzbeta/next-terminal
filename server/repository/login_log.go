@@ -75,6 +75,10 @@ func (r loginLogRepository) DeleteByIdIn(c context.Context, ids []string) (err e
 	return r.GetDB(c).Where("id in ?", ids).Delete(&model.LoginLog{}).Error
 }
 
+func (r loginLogRepository) DeleteAll(c context.Context) (err error) {
+	return r.GetDB(c).Where("1 = 1").Delete(&model.LoginLog{}).Error
+}
+
 func (r loginLogRepository) DeleteById(c context.Context, id string) (err error) {
 	return r.GetDB(c).Where("id = ?", id).Delete(&model.LoginLog{}).Error
 }
@@ -89,7 +93,7 @@ func (r loginLogRepository) Update(c context.Context, o *model.LoginLog) error {
 }
 
 func (r loginLogRepository) CountByState(c context.Context, state string) (total int64, err error) {
-	err = r.GetDB(c).Where("state = ?", state).Find(&model.LoginLog{}).Count(&total).Error
+	err = r.GetDB(c).Where("state = ?", state).Count(&total).Error
 	return
 }
 

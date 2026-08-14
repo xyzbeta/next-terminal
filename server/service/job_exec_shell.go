@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"next-terminal/server/common"
@@ -59,12 +60,17 @@ func (r ShellJob) executeShellByAssets(assets []model.Asset) {
 		return
 	}
 
-	msgChan := make(chan string)
+	// 无 channel 收集：原实现无缓冲 msgChan 在错误分支/panic 时死锁或永久挂起
+	// （错误分支在接收循环启动前 send；goroutine panic 后消息数不足使接收循环挂死）
+	results := make([]string, len(assets))
+	var wg sync.WaitGroup
 	for i := range assets {
 		asset, err := AssetService.FindByIdAndDecrypt(context.TODO(), assets[i].ID)
 		if err != nil {
-			msgChan <- fmt.Sprintf("资产「%v」Shell执行失败，查询数据异常「%v」", assets[i].Name, err.Error())
-			return
+			msg := fmt.Sprintf("资产「%v」Shell执行失败，查询数据异常「%v」", assets[i].Name, err.Error())
+			results[i] = msg
+			log.Error(msg)
+			break
 		}
 
 		var (
@@ -79,8 +85,10 @@ func (r ShellJob) executeShellByAssets(assets []model.Asset) {
 		if asset.AccountType == "credential" {
 			credential, err := CredentialService.FindByIdAndDecrypt(context.TODO(), asset.CredentialId)
 			if err != nil {
-				msgChan <- fmt.Sprintf("资产「%v」Shell执行失败，查询授权凭证数据异常「%v」", assets[i].Name, err.Error())
-				return
+				msg := fmt.Sprintf("资产「%v」Shell执行失败，查询授权凭证数据异常「%v」", assets[i].Name, err.Error())
+				results[i] = msg
+				log.Error(msg)
+				break
 			}
 
 			if credential.Type == nt.Custom {
@@ -93,7 +101,14 @@ func (r ShellJob) executeShellByAssets(assets []model.Asset) {
 			}
 		}
 
-		go func() {
+		wg.Add(1)
+		go func(i int) {
+			defer func() {
+				wg.Done()
+				if err := recover(); err != nil {
+					log.Error("Shell 执行 goroutine panic", log.String("panic", fmt.Sprintf("%v", err)))
+				}
+			}()
 			t1 := time.Now()
 			result, err := execute(metadataShell.Shell, asset.AccessGatewayId, ip, port, username, password, privateKey, passphrase)
 			elapsed := time.Since(t1)
@@ -110,14 +125,12 @@ func (r ShellJob) executeShellByAssets(assets []model.Asset) {
 				log.Debug(msg)
 			}
 
-			msgChan <- msg
-		}()
+			results[i] = msg
+		}(i)
 	}
+	wg.Wait()
 
-	var message = ""
-	for i := 0; i < len(assets); i++ {
-		message += <-msgChan + "\n"
-	}
+	message := strings.Join(trimEmpty(results), "\n")
 
 	_ = repository.JobRepository.UpdateLastUpdatedById(context.TODO(), r.ID)
 	jobLog := model.JobLog{
@@ -196,4 +209,15 @@ func ExecCommandBySSH(cmd, ip string, port int, username, password, privateKey, 
 		return "", err
 	}
 	return string(combo), nil
+}
+
+// trimEmpty 过滤空字符串（错误中断时未执行资产的结果槽为空）
+func trimEmpty(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, s := range items {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }

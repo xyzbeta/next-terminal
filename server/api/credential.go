@@ -156,10 +156,8 @@ func (api CredentialApi) CredentialUpdateEndpoint(c echo.Context) error {
 func (api CredentialApi) CredentialDeleteEndpoint(c echo.Context) error {
 	id := c.Param("id")
 	split := strings.Split(id, ",")
-	for i := range split {
-		if err := repository.CredentialRepository.DeleteById(context.TODO(), split[i]); err != nil {
-			return err
-		}
+	if err := repository.CredentialRepository.DeleteByIdIn(context.TODO(), split); err != nil {
+		return err
 	}
 
 	return Success(c, nil)

@@ -8,8 +8,8 @@ import (
 	"next-terminal/server/common/nt"
 	"path"
 	"strconv"
-	"time"
 	"strings"
+	"time"
 
 	"next-terminal/server/config"
 	"next-terminal/server/global/session"
@@ -36,8 +36,8 @@ const (
 )
 
 var UpGrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
+	ReadBufferSize:  32768,
+	WriteBufferSize: 32768,
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
@@ -80,10 +80,9 @@ func (api GuacamoleApi) Guacamole(c echo.Context) error {
 			if reconnectNextSession.ValidateReconnectToken(reconnectToken) {
 				log.Debug("Guacamole 会话重连成功", log.String("sessionId", sessionId))
 				reconnectNextSession.AttachWebSocket(ws)
-				guacamoleHandler := NewGuacamoleHandler(ws, reconnectNextSession.GuacdTunnel)
+				guacamoleHandler := NewGuacamoleHandler(reconnectNextSession, reconnectNextSession.GuacdTunnel)
 				guacamoleHandler.Start()
 				defer guacamoleHandler.Stop()
-
 
 				for {
 					_, message, err := ws.ReadMessage()
@@ -202,13 +201,13 @@ func (api GuacamoleApi) Guacamole(c echo.Context) error {
 		return err
 	}
 
-	guacamoleHandler := NewGuacamoleHandler(ws, guacdTunnel)
+	guacamoleHandler := NewGuacamoleHandler(nextSession, guacdTunnel)
 	guacamoleHandler.Start()
 	defer guacamoleHandler.Stop()
 
 	// guacd nop 保活：每 15s 发 nop 指令，防止 guacd 检测到 "User is not responding" 而断开
 	// nop 无回复不干扰浏览器
-	done := startNopKeepalive(guacdTunnel)
+	done := startNopKeepalive(guacdTunnel, nextSession.ID)
 	defer close(done)
 
 	for {
@@ -315,11 +314,11 @@ func (api GuacamoleApi) GuacamoleMonitor(c echo.Context) error {
 	nextSession.ID = utils.UUID()
 	forObsSession.Observer.Add(nextSession)
 
-	guacamoleHandler := NewGuacamoleHandler(ws, guacdTunnel)
+	guacamoleHandler := NewGuacamoleHandler(nextSession, guacdTunnel)
 
 	// guacd nop 保活：每 15s 发 nop 指令，防止 guacd 检测到 "User is not responding" 而断开
 	// nop 无回复不干扰浏览器
-	done := startNopKeepalive(guacdTunnel)
+	done := startNopKeepalive(guacdTunnel, nextSession.ID)
 	defer close(done)
 
 	guacamoleHandler.Start()
@@ -338,8 +337,11 @@ func (api GuacamoleApi) GuacamoleMonitor(c echo.Context) error {
 
 		_, err = guacdTunnel.WriteAndFlush(message)
 		if err != nil {
-			log.Warn("guacd 写入失败，关闭 RDP 会话", log.String("sessionId", sessionId), log.NamedError("err", err))
-			service.SessionService.CloseSessionById(sessionId, TunnelClosed, "远程连接已关闭")
+			// 监控端写失败只清理本监控连接，不得关闭被监控的主会话（原实现误杀主会话）
+			log.Warn("guacd 监控隧道写入失败，关闭监控连接", log.String("sessionId", sessionId), log.NamedError("err", err))
+			_ = guacdTunnel.Close()
+			observerId := nextSession.ID
+			forObsSession.Observer.Del(observerId)
 			return nil
 		}
 	}
@@ -422,10 +424,16 @@ const (
 )
 
 // startNopKeepalive 启动 guacd nop 保活 goroutine，返回 done channel 用于停止
-// 允许连续 nopKeepaliveMaxFailures 次失败，防止网络瞬断导致保活退出
-func startNopKeepalive(tunnel *guacamole.Tunnel) chan struct{} {
+// 允许连续 nopKeepaliveMaxFailures 次失败，防止网络瞬断导致保活退出；
+// 超过阈值走完整关闭链（原实现仅 return，会话悬挂且状态不一致）
+func startNopKeepalive(tunnel *guacamole.Tunnel, sessionId string) chan struct{} {
 	done := make(chan struct{})
 	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Error("nop keepalive goroutine panic", log.String("panic", fmt.Sprintf("%v", err)))
+			}
+		}()
 		ticker := time.NewTicker(nopKeepaliveInterval)
 		defer ticker.Stop()
 		failures := 0
@@ -437,6 +445,8 @@ func startNopKeepalive(tunnel *guacamole.Tunnel) chan struct{} {
 				if _, err := tunnel.WriteAndFlush([]byte("3.nop;")); err != nil {
 					failures++
 					if failures >= nopKeepaliveMaxFailures {
+						log.Warn("guacd nop 保活连续失败，判定 guacd 连接断开，关闭会话", log.String("sessionId", sessionId))
+						service.SessionService.CloseSessionById(sessionId, TunnelClosed, "远程连接已关闭")
 						return
 					}
 					ticker.Reset(nopKeepaliveRetryInterval)

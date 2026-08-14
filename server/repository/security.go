@@ -70,6 +70,10 @@ func (r securityRepository) UpdateById(c context.Context, o *model.AccessSecurit
 func (r securityRepository) DeleteById(c context.Context, id string) error {
 	return r.GetDB(c).Where("id = ?", id).Delete(model.AccessSecurity{}).Error
 }
+func (r securityRepository) DeleteByIdIn(c context.Context, ids []string) error {
+	return r.GetDB(c).Where("id in ?", ids).Delete(model.AccessSecurity{}).Error
+}
+
 
 func (r securityRepository) FindById(c context.Context, id string) (o *model.AccessSecurity, err error) {
 	err = r.GetDB(c).Where("id = ?", id).First(&o).Error

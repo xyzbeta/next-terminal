@@ -65,6 +65,10 @@ func (r gatewayRepository) UpdateById(c context.Context, o *model.AccessGateway,
 func (r gatewayRepository) DeleteById(c context.Context, id string) error {
 	return r.GetDB(c).Where("id = ?", id).Delete(model.AccessGateway{}).Error
 }
+func (r gatewayRepository) DeleteByIdIn(c context.Context, ids []string) error {
+	return r.GetDB(c).Where("id in ?", ids).Delete(model.AccessGateway{}).Error
+}
+
 
 func (r gatewayRepository) FindById(c context.Context, id string) (o model.AccessGateway, err error) {
 	err = r.GetDB(c).Where("id = ?", id).First(&o).Error

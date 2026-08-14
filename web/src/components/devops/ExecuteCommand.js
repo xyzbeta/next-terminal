@@ -26,7 +26,7 @@ const ExecuteCommand = () => {
     const [searchParams] = useSearchParams();
     let commandId = searchParams.get('commandId');
 
-    let commandQuery = useQuery('commandQuery', () => commandApi.getById(commandId),{
+    let commandQuery = useQuery(['commandQuery', commandId], () => commandApi.getById(commandId),{
         onSuccess: data => {
             let commands = data.content.split('\n');
             if (!commands) {

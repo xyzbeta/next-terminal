@@ -21,7 +21,8 @@ import GuacdClipboard from "./GuacdClipboard";
 import {debounce} from "../../utils/fun";
 import './Guacd.css';
 
-let fixedSize = false;
+// HACK: fixedSize 原为模块级变量，带宽高参数打开过后无参打开会沿用旧值导致 resize 失效。
+// 改为组件内 ref，随组件卸载销毁。
 
 const STATE_IDLE = 0;
 const STATE_CONNECTING = 1;
@@ -39,8 +40,10 @@ const Guacd = () => {
     let width = searchParams.get('width');
     let height = searchParams.get('height');
 
+    const fixedSizeRef = React.useRef(false);
+
     if (width && height) {
-        fixedSize = true;
+        fixedSizeRef.current = true;
     } else {
         width = window.innerWidth;
         height = window.innerHeight;
@@ -173,6 +176,11 @@ const Guacd = () => {
         window.addEventListener('focus', handleWindowFocus);
 
         return () => {
+            // 断开 Guacamole 隧道：原实现不 disconnect，Guacamole 内置自动重连会使
+            // 后台隧道继续存活至服务端超时（参照 GuacdMonitor.js 的正确做法）
+            if (guacd.client) {
+                guacd.client.disconnect();
+            }
             window.removeEventListener('resize', resize);
             window.removeEventListener('beforeunload', handleUnload);
             window.removeEventListener('focus', handleWindowFocus);
@@ -180,7 +188,7 @@ const Guacd = () => {
     }, [guacd])
 
     const onWindowResize = () => {
-        if (guacd.client && !fixedSize) {
+        if (guacd.client && !fixedSizeRef.current) {
             const display = guacd.client.getDisplay();
             let width = window.innerWidth;
             let height = window.innerHeight;

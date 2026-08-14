@@ -60,11 +60,8 @@ func (api TenantApi) CreateEndpoint(c echo.Context) error {
 func (api TenantApi) DeleteEndpoint(c echo.Context) error {
 	ids := c.Param("id")
 	split := strings.Split(ids, ",")
-	for i := range split {
-		id := split[i]
-		if err := repository.TenantRepository.DeleteById(context.TODO(), id); err != nil {
-			return err
-		}
+	if err := repository.TenantRepository.DeleteByIdIn(context.TODO(), split); err != nil {
+		return err
 	}
 	return Success(c, nil)
 }

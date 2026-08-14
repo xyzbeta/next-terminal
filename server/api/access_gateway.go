@@ -95,12 +95,11 @@ func (api AccessGatewayApi) AccessGatewayUpdateEndpoint(c echo.Context) error {
 func (api AccessGatewayApi) AccessGatewayDeleteEndpoint(c echo.Context) error {
 	ids := c.Param("id")
 	split := strings.Split(ids, ",")
+	if err := repository.GatewayRepository.DeleteByIdIn(context.TODO(), split); err != nil {
+		return err
+	}
 	for i := range split {
-		id := split[i]
-		if err := repository.GatewayRepository.DeleteById(context.TODO(), id); err != nil {
-			return err
-		}
-		service.GatewayService.DisconnectById(id)
+		service.GatewayService.DisconnectById(split[i])
 	}
 	return Success(c, nil)
 }

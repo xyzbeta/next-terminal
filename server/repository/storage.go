@@ -39,7 +39,7 @@ func (r storageRepository) Find(c context.Context, pageIndex, pageSize int, name
 		field = "storages.created"
 	}
 
-	err = db.Order(field + " " + order).Find(&o).Offset((pageIndex - 1) * pageSize).Limit(pageSize).Error
+	err = db.Order(field + " " + order).Offset((pageIndex - 1) * pageSize).Limit(pageSize).Find(&o).Error
 	if o == nil {
 		o = make([]model.StorageForPage, 0)
 	}

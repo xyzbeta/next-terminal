@@ -114,11 +114,14 @@ func (api WebTerminalApi) SshEndpoint(c echo.Context) error {
 
 	if err := nextTerminal.RequestPty(xterm, rows, cols); err != nil {
 		_ = WriteMessage(ws, dto.NewMessage(Closed, "请求PTY失败: "+err.Error()))
+		// 早期失败路径释放 SSH 客户端/录屏文件，防止泄漏
+		nextTerminal.Close()
 		return nil
 	}
 
 	if err := nextTerminal.Shell(); err != nil {
 		_ = WriteMessage(ws, dto.NewMessage(Closed, "启动Shell失败: "+err.Error()))
+		nextTerminal.Close()
 		return nil
 	}
 
@@ -139,6 +142,7 @@ func (api WebTerminalApi) SshEndpoint(c echo.Context) error {
 	}
 
 	if err := WriteMessage(ws, dto.NewMessage(Connected, "")); err != nil {
+		nextTerminal.Close()
 		return err
 	}
 
