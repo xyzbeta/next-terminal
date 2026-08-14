@@ -7,10 +7,16 @@ import {getHeaders} from "../utils/utils";
 // axios.defaults.baseURL = server;
 // 线上地址
 axios.defaults.baseURL = server;
+// 全局请求超时：后端慢/挂起时不再无限转圈（文件上传走 FormData+XHR，不受此限制）
+axios.defaults.timeout = 30000;
 
 const handleError = (error) => {
     if ("Network Error" === error.toString()) {
         message.error('网络异常');
+        return false;
+    }
+    if (error.code === 'ECONNABORTED' || error.toString().indexOf('timeout') !== -1) {
+        message.error('请求超时，请稍后重试');
         return false;
     }
     if (error.response !== undefined && error.response.status === 401) {

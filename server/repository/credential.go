@@ -72,7 +72,6 @@ func (r credentialRepository) DeleteByIdIn(c context.Context, ids []string) erro
 	return r.GetDB(c).Where("id in ?", ids).Delete(&model.Credential{}).Error
 }
 
-
 func (r credentialRepository) Count(c context.Context) (total int64, err error) {
 	err = r.GetDB(c).Find(&model.Credential{}).Count(&total).Error
 	return

@@ -695,7 +695,7 @@ class FileSystem extends Component {
                            rowSelection={rowSelection}
                            dataSource={this.state.files}
                            size={'small'}
-                           pagination={false}
+                           pagination={{pageSize: 100, showSizeChanger: false}}
                            loading={this.state.loading}
 
                            onRow={record => {

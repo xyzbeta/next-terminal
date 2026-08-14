@@ -60,6 +60,19 @@ func (api WebTerminalApi) SshEndpoint(c echo.Context) error {
 		return WriteMessage(ws, dto.NewMessage(Closed, "无权限访问此会话"))
 	}
 
+	// 断线重连：会话仍在内存（宽限期内或在线）时只允许挂接既有 SSH 连接，不允许重复新建
+	if existSession := session.GlobalSessionManager.GetById(sessionId); existSession != nil {
+		if existSession.TryReattach(c.QueryParam("reconnectToken"), ws) {
+			log.Info("SSH 会话重连成功", log.String("sessionId", sessionId))
+			// 复用旧 handler 的 Write/WindowChange（其 readFormTunnel/writeToWebsocket/keepalive
+			// 持续运行，经 Session 写路径自动向新 ws 恢复输出）
+			reconnectHandler := NewTermHandler(s.Creator, s.AssetId, sessionId, false, ws, existSession.NextTerminal)
+			_ = WriteMessage(ws, dto.NewMessage(Connected, ""))
+			return api.serveSshInputLoop(c, ws, ctx, sessionId, existSession, reconnectHandler)
+		}
+		return WriteMessage(ws, dto.NewMessage(Closed, "会话已存在且重连令牌无效"))
+	}
+
 	var (
 		username   = s.Username
 		password   = s.Password
@@ -161,11 +174,19 @@ func (api WebTerminalApi) SshEndpoint(c echo.Context) error {
 	termHandler.Start()
 	defer termHandler.Stop()
 
+	return api.serveSshInputLoop(c, ws, ctx, sessionId, nextSession, termHandler)
+}
+
+// serveSshInputLoop 浏览器 → 远端方向的输入循环（新建与重连路径共用）
+func (api WebTerminalApi) serveSshInputLoop(c echo.Context, ws *websocket.Conn, ctx context.Context, sessionId string, nextSession *session.Session, termHandler *TermHandler) error {
 	for {
 		_, message, err := ws.ReadMessage()
 		if err != nil {
-			log.Warn("WebSocket读取失败，关闭SSH会话", log.String("sessionId", sessionId), log.NamedError("err", err))
-			service.SessionService.CloseSessionById(sessionId, Normal, "用户正常退出")
+			log.Warn("WebSocket读取失败，进入宽限期等待重连", log.String("sessionId", sessionId), log.NamedError("err", err))
+			// 不关闭底层 SSH 连接：保留等待重连，宽限期到由回调执行完整关闭链
+			nextSession.Detach(func() {
+				service.SessionService.CloseSessionById(sessionId, TunnelClosed, "断线重连超时")
+			})
 			break
 		}
 
@@ -202,7 +223,7 @@ func (api WebTerminalApi) SshEndpoint(c echo.Context) error {
 
 		}
 	}
-	return err
+	return nil
 }
 
 func (api WebTerminalApi) SshMonitorEndpoint(c echo.Context) error {
@@ -220,6 +241,12 @@ func (api WebTerminalApi) SshMonitorEndpoint(c echo.Context) error {
 	s, err := repository.SessionRepository.FindById(ctx, sessionId)
 	if err != nil {
 		return WriteMessage(ws, dto.NewMessage(Closed, "获取会话失败"))
+	}
+
+	// 会话归属校验：非管理员仅可监控本人会话（此前该端点缺失校验）
+	user, _ := GetCurrentAccount(c)
+	if user != nil && user.Type != nt.TypeAdmin && user.ID != s.Creator {
+		return WriteMessage(ws, dto.NewMessage(Closed, "无权限访问此会话"))
 	}
 
 	nextSession := session.GlobalSessionManager.GetById(sessionId)

@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {useSearchParams} from "react-router-dom";
 import sessionApi from "../../api/session";
 import strings from "../../utils/strings";
@@ -52,6 +52,15 @@ const Guacd = () => {
     let [box, setBox] = useState({width, height});
     let [guacd, setGuacd] = useState({});
     let [session, setSession] = useState({});
+
+    // 断线重连状态
+    const sessionRef = useRef(null);           // 会话对象（闭包稳定引用）
+    const reconnectTimerRef = useRef(null);    // 重连退避定时器
+    const reconnectAttemptsRef = useRef(0);    // 连续重连次数（上限 5）
+    const reconnectGivenUpRef = useRef(false); // 放弃重连后不再自动重试
+    const reconnectingRef = useRef(false);     // 重连中（抑制 DISCONNECTED 提示）
+    const manualCloseRef = useRef(false);      // 用户主动关闭不重连
+    const reconnectTokenRef = useRef('');      // 重连令牌
     let [clipboardText, setClipboardText] = useState('');
     let [fullScreened, setFullScreened] = useState(false);
     let [clipboardVisible, setClipboardVisible] = useState(false);
@@ -59,6 +68,9 @@ const Guacd = () => {
 
     useEffect(() => {
         document.title = assetName;
+        manualCloseRef.current = false;
+        reconnectGivenUpRef.current = false;
+        reconnectAttemptsRef.current = 0;
         createSession();
     }, [assetId, assetName]);
 
@@ -67,11 +79,26 @@ const Guacd = () => {
         if (!strings.hasText(session['id'])) {
             return;
         }
+        // 断线重连令牌：存 sessionStorage 供页面刷新后重连使用
+        if (session['reconnectToken']) {
+            reconnectTokenRef.current = session['reconnectToken'];
+            sessionStorage.setItem(`rt-${session['id']}`, session['reconnectToken']);
+        }
+        sessionRef.current = session;
         setSession(session);
         renderDisplay(session['id'], protocol, width, height);
     }
 
     const renderDisplay = (sessionId, protocol, width, height) => {
+        // 清空旧 client 的 display/sink DOM（重建连接时避免元素叠加）
+        const displayEle = document.getElementById("display");
+        displayEle.innerHTML = '';
+
+        // 刷新令牌：优先 sessionStorage（跨页面刷新）
+        if (!reconnectTokenRef.current) {
+            reconnectTokenRef.current = sessionStorage.getItem(`rt-${sessionId}`) || '';
+        }
+
         let tunnel = new Guacamole.WebSocketTunnel(`${wsServer}/sessions/${sessionId}/tunnel`);
         let client = new Guacamole.Client(tunnel);
 
@@ -85,9 +112,6 @@ const Guacd = () => {
 
         client.onerror = onError;
         tunnel.onerror = onError;
-
-        // Get display div from document
-        const displayEle = document.getElementById("display");
 
         // Add client to display div
         const element = client.getDisplay().getElement();
@@ -104,7 +128,8 @@ const Guacd = () => {
             'width': width,
             'height': height,
             'dpi': dpi,
-            'X-Auth-Token': token
+            'X-Auth-Token': token,
+            'reconnectToken': reconnectTokenRef.current
         };
 
         let paramStr = qs.stringify(params);
@@ -176,6 +201,12 @@ const Guacd = () => {
         window.addEventListener('focus', handleWindowFocus);
 
         return () => {
+            // 标记主动关闭：退避定时器不再触发重连
+            manualCloseRef.current = true;
+            if (reconnectTimerRef.current) {
+                clearTimeout(reconnectTimerRef.current);
+                reconnectTimerRef.current = null;
+            }
             // 断开 Guacamole 隧道：原实现不 disconnect，Guacamole 内置自动重连会使
             // 后台隧道继续存活至服务端超时（参照 GuacdMonitor.js 的正确做法）
             if (guacd.client) {
@@ -300,7 +331,12 @@ const Guacd = () => {
             case STATE_CONNECTED:
                 Modal.destroyAll();
                 message.destroy(key);
+                message.destroy('reconnect');
                 message.success({content: '连接成功', duration: 3, key: key});
+                // 重连成功：重置计数与标记
+                reconnectAttemptsRef.current = 0;
+                reconnectGivenUpRef.current = false;
+                reconnectingRef.current = false;
                 // 向后台发送请求，更新会话的状态
                 sessionApi.connect(sessionId);
                 break;
@@ -308,7 +344,10 @@ const Guacd = () => {
 
                 break;
             case STATE_DISCONNECTED:
-                message.info({content: '连接已关闭', duration: 3, key: key});
+                // 重连流程中主动 disconnect 产生的状态变化不提示
+                if (!reconnectingRef.current) {
+                    message.info({content: '连接已关闭', duration: 3, key: key});
+                }
                 break;
             default:
                 break;
@@ -346,7 +385,45 @@ const Guacd = () => {
         });
     }
 
+    // 重连：指数退避（1s/2s/4s/8s/16s，最多 5 次），重建 tunnel+client 挂接同一 guacd 隧道
+    const tryReconnect = () => {
+        if (manualCloseRef.current || reconnectGivenUpRef.current) {
+            return;
+        }
+        if (reconnectAttemptsRef.current >= 5) {
+            reconnectGivenUpRef.current = true;
+            reconnectingRef.current = false;
+            showMessage('连接已断开，自动重连失败，请重新连接。');
+            return;
+        }
+        reconnectAttemptsRef.current += 1;
+        reconnectingRef.current = true;
+        const attempt = reconnectAttemptsRef.current;
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 16000);
+        message.destroy();
+        message.loading({content: `连接断开，${delay / 1000}s 后重连（第 ${attempt}/5 次）...`, duration: 0, key: 'reconnect'});
+        reconnectTimerRef.current = setTimeout(() => {
+            message.destroy('reconnect');
+            if (manualCloseRef.current || reconnectGivenUpRef.current) {
+                return;
+            }
+            // 销毁旧 client（断开旧 ws），重建 tunnel+client 携带重连令牌挂接同一隧道
+            if (guacd.client) {
+                guacd.client.disconnect();
+            }
+            if (sessionRef.current && sessionRef.current['id']) {
+                renderDisplay(sessionRef.current['id'], protocol, width, height);
+            }
+        }, delay);
+    }
+
     const onError = (status) => {
+        // 网络层瞬断（ws 异常关闭映射 UPSTREAM_NOT_FOUND=516 / UPSTREAM_UNAVAILABLE=520）
+        // → 自动重连；业务状态码（如 802 管理员强制断开）→ 保持原弹窗逻辑
+        if ((status.code === 516 || status.code === 520) && !manualCloseRef.current && !reconnectGivenUpRef.current) {
+            tryReconnect();
+            return;
+        }
         switch (status.code) {
             case 256:
                 showMessage('未支持的访问');

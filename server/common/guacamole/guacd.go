@@ -110,20 +110,25 @@ type Instruction struct {
 func NewInstruction(opcode string, args ...string) (ret Instruction) {
 	ret.Opcode = opcode
 	ret.Args = args
+	// 预构建协议形式：原 String() 惰性缓存在值传递下失效（缓存写入拷贝），
+	// 改为构造时一次性构建，任何拷贝都直接复用
+	ret.ProtocolForm = buildProtocolForm(opcode, args)
 	return ret
+}
+
+func buildProtocolForm(opcode string, args []string) string {
+	form := fmt.Sprintf("%d.%s", len(opcode), opcode)
+	for _, value := range args {
+		form += fmt.Sprintf(",%d.%s", len(value), value)
+	}
+	return form + string(Delimiter)
 }
 
 func (opt *Instruction) String() string {
 	if len(opt.ProtocolForm) > 0 {
 		return opt.ProtocolForm
 	}
-
-	opt.ProtocolForm = fmt.Sprintf("%d.%s", len(opt.Opcode), opt.Opcode)
-	for _, value := range opt.Args {
-		opt.ProtocolForm += fmt.Sprintf(",%d.%s", len(value), value)
-	}
-	opt.ProtocolForm += string(Delimiter)
-	return opt.ProtocolForm
+	return buildProtocolForm(opt.Opcode, opt.Args)
 }
 
 func (opt *Instruction) Parse(content string) (Instruction, error) {
@@ -313,6 +318,10 @@ func (opt *Tunnel) Close() error {
 }
 
 func Disconnect(ws *websocket.Conn, code int, reason string) {
+	// nil 防护：宽限期内 ws 已置空，不再向 nil 连接写
+	if ws == nil {
+		return
+	}
 	// guacd 无法处理中文字符，所以进行了base64编码。
 	encodeReason := base64.StdEncoding.EncodeToString([]byte(reason))
 	err := NewInstruction("error", encodeReason, strconv.Itoa(code))

@@ -1,5 +1,10 @@
 package stat
 
+import "sync"
+
+// SystemLoadMutex 保护 SystemLoad 的并发读写（ticker 写 / overview API marshal 读）
+var SystemLoadMutex sync.RWMutex
+
 type systemLoad struct {
 	LoadStat   *LoadStat  `json:"loadStat"`
 	Mem        *Mem       `json:"mem"`

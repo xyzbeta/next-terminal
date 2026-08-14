@@ -63,7 +63,8 @@ func (r loginLogRepository) FindAliveLoginLogsByUsername(c context.Context, user
 
 func (r loginLogRepository) FindOutTimeLog(c context.Context, dayLimit int) (o []model.LoginLog, err error) {
 	limitTime := time.Now().Add(time.Duration(-dayLimit*24) * time.Hour)
-	err = r.GetDB(c).Where("(state = '0' and login_time < ?) or (state = '1' and logout_time < ?) or (state is null and logout_time < ?)", limitTime, limitTime, limitTime).Find(&o).Error
+	// 仅取 ID：清理任务只需主键
+	err = r.GetDB(c).Select("id").Where("(state = '0' and login_time < ?) or (state = '1' and logout_time < ?) or (state is null and logout_time < ?)", limitTime, limitTime, limitTime).Find(&o).Error
 	return
 }
 

@@ -58,7 +58,6 @@ func (r tenantRepository) DeleteByIdIn(c context.Context, ids []string) error {
 	return r.GetDB(c).Where("id in ?", ids).Delete(model.Tenant{}).Error
 }
 
-
 func (r tenantRepository) Create(c context.Context, m *model.Tenant) error {
 	return r.GetDB(c).Create(m).Error
 }

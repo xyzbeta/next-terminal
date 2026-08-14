@@ -74,32 +74,43 @@ func (api GuacamoleApi) Guacamole(c echo.Context) error {
 	dpi := c.QueryParam("dpi")
 	sessionId := c.Param("id")
 
-	// 断线重连：如果已有会话且在重连窗口内，直接复用现有隧道
-	if reconnectNextSession := session.GlobalSessionManager.GetById(sessionId); reconnectNextSession != nil {
-		if reconnectToken := c.QueryParam("reconnectToken"); reconnectToken != "" {
-			if reconnectNextSession.ValidateReconnectToken(reconnectToken) {
-				log.Debug("Guacamole 会话重连成功", log.String("sessionId", sessionId))
-				reconnectNextSession.AttachWebSocket(ws)
-				guacamoleHandler := NewGuacamoleHandler(reconnectNextSession, reconnectNextSession.GuacdTunnel)
-				guacamoleHandler.Start()
-				defer guacamoleHandler.Stop()
+	// 断线重连：会话仍在内存（宽限期内或在线）时只允许挂接，不允许重复新建（防覆盖泄漏）
+	if reconnectSession := session.GlobalSessionManager.GetById(sessionId); reconnectSession != nil {
+		// 归属校验：非管理员仅可重连本人会话
+		s, err := repository.SessionRepository.FindById(ctx, sessionId)
+		if err != nil {
+			guacamole.Disconnect(ws, NotFoundSession, "获取会话失败")
+			return nil
+		}
+		user, _ := GetCurrentAccount(c)
+		if user != nil && user.Type != nt.TypeAdmin && user.ID != s.Creator {
+			guacamole.Disconnect(ws, ForcedDisconnect, "无权限访问此会话")
+			return nil
+		}
 
-				for {
-					_, message, err := ws.ReadMessage()
-					if err != nil {
-						log.Warn("RDP 重连 WebSocket 读取失败", log.String("sessionId", sessionId), log.NamedError("err", err))
-						service.SessionService.MarkDisconnected(sessionId)
-						return nil
-					}
-					reconnectNextSession.UpdateLastActive()
-					_, err = reconnectNextSession.GuacdTunnel.WriteAndFlush(message)
-					if err != nil {
-						service.SessionService.CloseSessionById(sessionId, TunnelClosed, "远程连接已关闭")
-						return nil
-					}
+		if reconnectSession.TryReattach(c.QueryParam("reconnectToken"), ws) {
+			log.Info("Guacamole 会话重连成功", log.String("sessionId", sessionId))
+			// 输入循环：浏览器 → 既有 guacd 隧道（旧 handler 经 Session 写路径自动向新 ws 转发，
+			// 此处不新建 handler——双读者会撕裂隧道帧）
+			for {
+				_, message, err := ws.ReadMessage()
+				if err != nil {
+					log.Warn("RDP 重连 WebSocket 读取失败，再次进入宽限期", log.String("sessionId", sessionId), log.NamedError("err", err))
+					reconnectSession.Detach(func() {
+						service.SessionService.CloseSessionById(sessionId, TunnelClosed, "断线重连超时")
+					})
+					return nil
+				}
+				reconnectSession.UpdateLastActive()
+				_, err = reconnectSession.GuacdTunnel.WriteAndFlush(message)
+				if err != nil {
+					service.SessionService.CloseSessionById(sessionId, TunnelClosed, "远程连接已关闭")
+					return nil
 				}
 			}
 		}
+		guacamole.Disconnect(ws, ForcedDisconnect, "会话已存在且重连令牌无效")
+		return nil
 	}
 
 	intWidth, _ := strconv.Atoi(width)
@@ -116,6 +127,14 @@ func (api GuacamoleApi) Guacamole(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// 会话归属校验：非管理员仅可访问本人会话（此前 Guacamole 主路径完全缺失该校验）
+	user, _ := GetCurrentAccount(c)
+	if user != nil && user.Type != nt.TypeAdmin && user.ID != s.Creator {
+		guacamole.Disconnect(ws, ForcedDisconnect, "无权限访问此会话")
+		return nil
+	}
+
 	api.setConfig(propertyMap, s, configuration)
 
 	if s.AccessGatewayId != "" && s.AccessGatewayId != "-" {
@@ -206,18 +225,17 @@ func (api GuacamoleApi) Guacamole(c echo.Context) error {
 	defer guacamoleHandler.Stop()
 
 	// guacd nop 保活：每 15s 发 nop 指令，防止 guacd 检测到 "User is not responding" 而断开
-	// nop 无回复不干扰浏览器
-	done := startNopKeepalive(guacdTunnel, nextSession.ID)
-	defer close(done)
+	// 会话级生命周期：宽限期内隧道需持续保活，Session.Close 时停止（原函数级 defer 不适用）
+	startNopKeepalive(guacdTunnel, nextSession.ID, nextSession.EnsureNopDone())
 
 	for {
 		_, message, err := ws.ReadMessage()
 		if err != nil {
-			log.Warn("RDP Guacamole WebSocket 读取失败，会话断开", log.String("sessionId", sessionId), log.NamedError("err", err))
-			// guacdTunnel.Read() 会阻塞，所以要先把guacdTunnel客户端关闭，才能退出Guacd循环
-			_ = guacdTunnel.Close()
-
-			service.SessionService.MarkDisconnected(sessionId)
+			log.Warn("RDP Guacamole WebSocket 读取失败，进入宽限期等待重连", log.String("sessionId", sessionId), log.NamedError("err", err))
+			// 不关闭隧道：保留底层连接等待重连，宽限期到由回调执行完整关闭链
+			nextSession.Detach(func() {
+				service.SessionService.CloseSessionById(sessionId, TunnelClosed, "断线重连超时")
+			})
 			return nil
 		}
 		nextSession.UpdateLastActive()
@@ -318,8 +336,9 @@ func (api GuacamoleApi) GuacamoleMonitor(c echo.Context) error {
 
 	// guacd nop 保活：每 15s 发 nop 指令，防止 guacd 检测到 "User is not responding" 而断开
 	// nop 无回复不干扰浏览器
-	done := startNopKeepalive(guacdTunnel, nextSession.ID)
+	done := make(chan struct{})
 	defer close(done)
+	startNopKeepalive(guacdTunnel, nextSession.ID, done)
 
 	guacamoleHandler.Start()
 	defer guacamoleHandler.Stop()
@@ -423,11 +442,11 @@ const (
 	nopKeepaliveMaxFailures   = 3
 )
 
-// startNopKeepalive 启动 guacd nop 保活 goroutine，返回 done channel 用于停止
+// startNopKeepalive 启动 guacd nop 保活 goroutine；done 由调用方提供（主路径为会话级，
+// 宽限期内保活持续；监控路径为函数级，随监控连接结束）
 // 允许连续 nopKeepaliveMaxFailures 次失败，防止网络瞬断导致保活退出；
 // 超过阈值走完整关闭链（原实现仅 return，会话悬挂且状态不一致）
-func startNopKeepalive(tunnel *guacamole.Tunnel, sessionId string) chan struct{} {
-	done := make(chan struct{})
+func startNopKeepalive(tunnel *guacamole.Tunnel, sessionId string, done chan struct{}) {
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
@@ -459,5 +478,4 @@ func startNopKeepalive(tunnel *guacamole.Tunnel, sessionId string) chan struct{}
 			}
 		}
 	}()
-	return done
 }

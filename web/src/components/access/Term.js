@@ -92,6 +92,12 @@ const Term = () => {
     const sessionIdRef = useRef(''); // init 中设置，供组件层函数使用
     const wsRef = useRef(null);      // 当前 WebSocket，供卸载/切换资产清理（state 闭包会过期）
     const termRef = useRef(null);    // 当前 xterm 实例，供卸载时 dispose
+    // 断线重连状态
+    const reconnectTimerRef = useRef(null);  // 重连退避定时器
+    const reconnectAttemptsRef = useRef(0);  // 连续重连次数（上限 5）
+    const manualCloseRef = useRef(false);    // 用户主动关闭（卸载/切资产）不重连
+    const closedByServerRef = useRef(false); // 收到服务端 Closed 消息后不重连
+    const reconnectTokenRef = useRef('');    // 重连令牌（HMAC，会话存活期有效）
 
     const lsAbortRef = useRef(null);
 
@@ -204,7 +210,13 @@ const Term = () => {
         if (result['code'] !== 1) {
             return [undefined, result['message']];
         }
-        return [result['data'], ''];
+        // 断线重连令牌：存 sessionStorage 供页面刷新后重连使用
+        const data = result['data'];
+        if (data && data['id'] && data['reconnectToken']) {
+            sessionStorage.setItem(`rt-${data['id']}`, data['reconnectToken']);
+            reconnectTokenRef.current = data['reconnectToken'];
+        }
+        return [data, ''];
     }
 
     const writeErrorMessage = (term, message) => {
@@ -301,41 +313,17 @@ const Term = () => {
             }
         }
 
-        let token = getToken();
-        let params = {
-            'cols': xterm.cols,
-            'rows': xterm.rows,
-            'X-Auth-Token': token
-        };
-
-        let paramStr = qs.stringify(params);
-
-        let webSocket = new WebSocket(`${wsServer}/sessions/${sessionId}/ssh?${paramStr}`);
-	        webSocket.binaryType = 'arraybuffer';
-        wsRef.current = webSocket;
+        // 重连令牌：优先 sessionStorage（跨页面刷新），否则 createSession 响应
+        if (!reconnectTokenRef.current) {
+            reconnectTokenRef.current = sessionStorage.getItem(`rt-${sessionId}`) || '';
+        }
+        sessionIdRef.current = sessionId;
 
         let pingInterval;
         let pingSentAt = 0;
         let lastActivity = Date.now();
-
-        // 存活检查：15s 无任何消息则标记 offline（允许网络轻度延迟，减少误报）
-        const offlineTimer = setInterval(() => {
-            if (Date.now() - lastActivity > 15000) {
-                setAliveStatus('offline');
-            }
-        }, 3000);
-
-        const sendPing = () => {
-            pingSentAt = Date.now();
-            webSocket.send(new Message(Message.Ping, "").toString());
-        };
-
-        webSocket.onopen = (e => {
-            setAliveStatus('connecting');
-            sendPing(); // 连接后立即测一次延迟
-            pingInterval = setInterval(sendPing, 2000); // 每 2s 刷新
-            xtermScrollPretty();
-        });
+        let offlineTimer;
+        let currentWs = null;
 
         // rAF 节流渲染：合并同一帧内的多次 term.write，减少 DOM 重绘
         let pendingData = '';
@@ -364,22 +352,12 @@ const Term = () => {
             }, 30);
         };
 
-        webSocket.onerror = () => {
-            // WebSocket error 不携带有意义数据，关闭原因见 onclose 或后端 Closed 消息
-        }
-
-        webSocket.onclose = (e) => {
-            xterm.writeln(`connection closed (code: ${e.code})`);
-            setAliveStatus('offline');
-            clearInterval(pingInterval);
-            clearInterval(offlineTimer);
-            // 清理全局事件处理器
-            document.body.oncopy = null;
-            document.body.onpaste = null;
-        }
-
-        // 将 sessionId 存入 ref，供组件层 picker 函数使用
-        sessionIdRef.current = sessionId;
+        const sendPing = () => {
+            if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+                pingSentAt = Date.now();
+                currentWs.send(new Message(Message.Ping, "").toString());
+            }
+        };
 
         // 键盘快捷键处理：Ctrl+Shift+F 打开文件选择器
         xterm.attachCustomKeyEventHandler((event) => {
@@ -391,47 +369,129 @@ const Term = () => {
             return true;
         });
 
+        // 断线期间丢弃输入：send 失败静默，防止 DOMException 干扰页面
         xterm.onData(data => {
-            if (webSocket !== undefined) {
-                webSocket.send(new Message(Message.Data, data).toString());
+            try {
+                if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+                    currentWs.send(new Message(Message.Data, data).toString());
+                }
+            } catch (e) {
             }
         });
 
-        webSocket.onmessage = (e) => {
-            const data = (e.data instanceof ArrayBuffer) ? new TextDecoder("utf-8").decode(e.data) : e.data;
-            let msg = Message.parse(data);
-            switch (msg['type']) {
-                case Message.Connected:
-                    xterm.clear();
-                    updateSessionStatus(sessionId);
-                    getCommands();
-                    break;
-                case Message.Ping:
-                    if (pingSentAt > 0) {
-                        const rtt = Date.now() - pingSentAt;
-                        setLatency(rtt);
-                        setAliveStatus(rtt < 200 ? 'alive' : 'slow');
-                        lastActivity = Date.now();
-                    }
-                    break;
-                case Message.Data:
-                    lastActivity = Date.now();
-                    pendingData += msg['content'];
-                    scheduleFlush();
-                    break;
-                case Message.Closed:
-                    // 先 flush 残留数据再关闭
-                    if (pendingData.length > 0) {
-                        if (rafId) cancelAnimationFrame(rafId);
-                        flushData();
-                    }
-                    xterm.writeln(`\x1B[1;3;31m${msg['content']}\x1B[0m `);
-                    webSocket.close();
-                    break;
-                default:
-                    break;
+        // WebSocket 创建函数化：断线重连按指数退避重建（1s/2s/4s/8s/16s，最多 5 次）
+        const connectWs = () => {
+            const wasReconnect = reconnectAttemptsRef.current > 0;
+            const params = {
+                'cols': xterm.cols,
+                'rows': xterm.rows,
+                'X-Auth-Token': getToken(),
+                'reconnectToken': reconnectTokenRef.current
+            };
+            const paramStr = qs.stringify(params);
+            const webSocket = new WebSocket(`${wsServer}/sessions/${sessionId}/ssh?${paramStr}`);
+            webSocket.binaryType = 'arraybuffer';
+            wsRef.current = webSocket;
+            currentWs = webSocket;
+
+            webSocket.onopen = (e => {
+                if (wasReconnect) {
+                    reconnectAttemptsRef.current = 0;
+                    // 重连成功后发当前窗口尺寸，让远端 shell 重绘提示符
+                    const size = {cols: xterm.cols, rows: xterm.rows};
+                    webSocket.send(new Message(Message.Resize, window.btoa(JSON.stringify(size))).toString());
+                }
+                setAliveStatus('connecting');
+                sendPing(); // 连接后立即测一次延迟
+                pingInterval = setInterval(sendPing, 2000); // 每 2s 刷新
+                xtermScrollPretty();
+            });
+
+            webSocket.onerror = () => {
+                // WebSocket error 不携带有意义数据，关闭原因见 onclose 或后端 Closed 消息
             }
-        }
+
+            webSocket.onclose = (e) => {
+                clearInterval(pingInterval);
+                clearInterval(offlineTimer);
+                // 清理全局事件处理器
+                document.body.oncopy = null;
+                document.body.onpaste = null;
+                // 不重连：用户主动关闭 / 服务端 Closed / 正常关闭码
+                if (manualCloseRef.current || closedByServerRef.current || e.code === 1000 || e.code === 1001) {
+                    xterm.writeln(`connection closed (code: ${e.code})`);
+                    setAliveStatus('offline');
+                    return;
+                }
+                if (reconnectAttemptsRef.current >= 5) {
+                    xterm.writeln(`\x1B[1;3;31m重连失败，连接已断开（请重新打开会话）\x1B[0m `);
+                    setAliveStatus('offline');
+                    return;
+                }
+                // 指数退避重连（后端宽限期 60s，总退避 31s + 连接时间在窗口内）
+                reconnectAttemptsRef.current += 1;
+                const attempt = reconnectAttemptsRef.current;
+                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 16000);
+                setAliveStatus('reconnecting');
+                xterm.writeln(`\x1B[1;3;33m连接断开，${delay / 1000}s 后重连（第 ${attempt}/5 次）...\x1B[0m `);
+                reconnectTimerRef.current = setTimeout(() => {
+                    if (!manualCloseRef.current && !closedByServerRef.current) {
+                        connectWs();
+                    }
+                }, delay);
+            }
+
+            webSocket.onmessage = (e) => {
+                const data = (e.data instanceof ArrayBuffer) ? new TextDecoder("utf-8").decode(e.data) : e.data;
+                let msg = Message.parse(data);
+                switch (msg['type']) {
+                    case Message.Connected:
+                        // 重连成功后不清屏（保留屏幕上下文）
+                        if (!wasReconnect) {
+                            xterm.clear();
+                        }
+                        updateSessionStatus(sessionId);
+                        getCommands();
+                        break;
+                    case Message.Ping:
+                        if (pingSentAt > 0) {
+                            const rtt = Date.now() - pingSentAt;
+                            setLatency(rtt);
+                            setAliveStatus(rtt < 200 ? 'alive' : 'slow');
+                            lastActivity = Date.now();
+                        }
+                        break;
+                    case Message.Data:
+                        lastActivity = Date.now();
+                        pendingData += msg['content'];
+                        scheduleFlush();
+                        break;
+                    case Message.Closed:
+                        // 服务端决定结束：标记不重连
+                        closedByServerRef.current = true;
+                        if (pendingData.length > 0) {
+                            if (rafId) cancelAnimationFrame(rafId);
+                            flushData();
+                        }
+                        xterm.writeln(`\x1B[1;3;31m${msg['content']}\x1B[0m `);
+                        webSocket.close();
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            // 存活检查：15s 无任何消息则标记 offline（允许网络轻度延迟，减少误报）
+            offlineTimer = setInterval(() => {
+                if (Date.now() - lastActivity > 15000) {
+                    setAliveStatus('offline');
+                }
+            }, 3000);
+
+            return webSocket;
+        };
+
+        connectWs();
 
         setSession(session);
         setTerm(xterm);
@@ -447,10 +507,19 @@ const Term = () => {
 
     useEffect(() => {
         document.title = assetName;
+        manualCloseRef.current = false;
+        closedByServerRef.current = false;
+        reconnectAttemptsRef.current = 0;
         init(assetId);
         // 卸载/切换资产时才关闭 WebSocket 并释放 xterm：
         // 原实现把 close 放在 resize effect 的 cleanup 中，窗口缩放即掐断 SSH 会话
         return () => {
+            // 标记主动关闭：退避定时器不再触发重连
+            manualCloseRef.current = true;
+            if (reconnectTimerRef.current) {
+                clearTimeout(reconnectTimerRef.current);
+                reconnectTimerRef.current = null;
+            }
             if (wsRef.current) {
                 wsRef.current.close();
                 wsRef.current = null;
@@ -517,11 +586,11 @@ const Term = () => {
             <div style={{
                 position: 'absolute', bottom: 15, right: 15, zIndex: 999,
                 backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 4, padding: '3px 8px',
-                color: aliveStatus === 'alive' ? '#52c41a' : aliveStatus === 'slow' ? '#faad14' : aliveStatus === 'offline' ? '#ff4d4f' : '#999',
+                color: aliveStatus === 'alive' ? '#52c41a' : aliveStatus === 'slow' ? '#faad14' : aliveStatus === 'offline' ? '#ff4d4f' : aliveStatus === 'reconnecting' ? '#faad14' : '#999',
                 fontSize: 12, fontFamily: 'monospace',
                 pointerEvents: 'none', userSelect: 'none'
             }}>
-                {aliveStatus === 'offline' ? '● 离线' : aliveStatus === 'connecting' ? '● 连接中' : latency !== null ? `● ${latency}ms` : ''}
+                {aliveStatus === 'offline' ? '● 离线' : aliveStatus === 'reconnecting' ? `● 重连中(${reconnectAttemptsRef.current}/5)…` : aliveStatus === 'connecting' ? '● 连接中' : latency !== null ? `● ${latency}ms` : ''}
             </div>
 
             <Draggable>

@@ -84,7 +84,8 @@ func (r sessionRepository) FindByStatusIn(c context.Context, statuses []string) 
 
 func (r sessionRepository) FindOutTimeSessions(c context.Context, dayLimit int) (o []model.Session, err error) {
 	limitTime := time.Now().Add(time.Duration(-dayLimit*24) * time.Hour)
-	err = r.GetDB(c).Where("status = ? and connected_time < ?", nt.Disconnected, limitTime).Find(&o).Error
+	// 仅取 ID：清理任务只需主键，避免载入 password/private_key 等敏感大列
+	err = r.GetDB(c).Select("id").Where("status = ? and connected_time < ?", nt.Disconnected, limitTime).Find(&o).Error
 	return
 }
 

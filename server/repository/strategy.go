@@ -58,7 +58,6 @@ func (r strategyRepository) DeleteByIdIn(c context.Context, ids []string) error 
 	return r.GetDB(c).Where("id in ?", ids).Delete(model.Strategy{}).Error
 }
 
-
 func (r strategyRepository) Create(c context.Context, m *model.Strategy) error {
 	return r.GetDB(c).Create(m).Error
 }

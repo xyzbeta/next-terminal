@@ -7,6 +7,7 @@ import (
 	"next-terminal/server/global/session"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"next-terminal/server/utils"
@@ -112,7 +113,7 @@ func GetAllStats(nextSession *session.Session) (*Stat, error) {
 		return getInterfaceInfo(client, stats)
 	})
 	runner.Add(func() error {
-		return getCPU(client, stats)
+		return getCPU(nextSession.ID, client, stats)
 	})
 	runner.Wait()
 	cost := time.Since(start)
@@ -359,10 +360,10 @@ func parseCPUFields(fields []string, stat *cpuRaw) {
 	}
 }
 
-// the CPU stats that were fetched last time round
-var preCPU cpuRaw
+// preCPUs CPU 差分基准按会话隔离：原包级全局 preCPU 在多会话并发时跨主机混算且数据竞争
+var preCPUs sync.Map
 
-func getCPU(client *ssh.Client, stats *Stat) (err error) {
+func getCPU(sessionId string, client *ssh.Client, stats *Stat) (err error) {
 	defer utils.TimeWatcher("getCPU")
 	lines, err := utils.RunCommand(client, "/bin/cat /proc/stat")
 	if err != nil {
@@ -383,20 +384,25 @@ func getCPU(client *ssh.Client, stats *Stat) (err error) {
 			break
 		}
 	}
+
+	v, _ := preCPUs.LoadOrStore(sessionId, cpuRaw{})
+	preCPU := v.(cpuRaw)
 	if preCPU.Total == 0 { // having no pre raw cpu data
 		goto END
 	}
 
 	total = float32(nowCPU.Total - preCPU.Total)
-	stats.CPU.User = float32(nowCPU.User-preCPU.User) / total * 100
-	stats.CPU.Nice = float32(nowCPU.Nice-preCPU.Nice) / total * 100
-	stats.CPU.System = float32(nowCPU.System-preCPU.System) / total * 100
-	stats.CPU.Idle = float32(nowCPU.Idle-preCPU.Idle) / total * 100
-	stats.CPU.IOWait = float32(nowCPU.Iowait-preCPU.Iowait) / total * 100
-	stats.CPU.Irq = float32(nowCPU.Irq-preCPU.Irq) / total * 100
-	stats.CPU.SoftIrq = float32(nowCPU.SoftIrq-preCPU.SoftIrq) / total * 100
-	stats.CPU.Guest = float32(nowCPU.Guest-preCPU.Guest) / total * 100
+	if total > 0 {
+		stats.CPU.User = float32(nowCPU.User-preCPU.User) / total * 100
+		stats.CPU.Nice = float32(nowCPU.Nice-preCPU.Nice) / total * 100
+		stats.CPU.System = float32(nowCPU.System-preCPU.System) / total * 100
+		stats.CPU.Idle = float32(nowCPU.Idle-preCPU.Idle) / total * 100
+		stats.CPU.IOWait = float32(nowCPU.Iowait-preCPU.Iowait) / total * 100
+		stats.CPU.Irq = float32(nowCPU.Irq-preCPU.Irq) / total * 100
+		stats.CPU.SoftIrq = float32(nowCPU.SoftIrq-preCPU.SoftIrq) / total * 100
+		stats.CPU.Guest = float32(nowCPU.Guest-preCPU.Guest) / total * 100
+	}
 END:
-	preCPU = nowCPU
+	preCPUs.Store(sessionId, nowCPU)
 	return
 }

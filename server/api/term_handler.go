@@ -58,6 +58,8 @@ func NewTermHandler(userId, assetId, sessionId string, isRecording bool, ws *web
 }
 
 func (r *TermHandler) Start() {
+	// 最终关闭回调：Session.Close 时 cancel，防止 writeToWebsocket 等 goroutine 泄漏（R1）
+	r.sess.SetOnClose(r.cancel)
 	go func() {
 		defer r.recoverPanic("readFormTunnel")
 		r.readFormTunnel()

@@ -8,6 +8,8 @@ import (
 	"next-terminal/server/api"
 	"next-terminal/server/api/worker"
 	mw "next-terminal/server/app/middleware"
+	"strings"
+
 	"next-terminal/server/config"
 	"next-terminal/server/log"
 	"next-terminal/server/resource"
@@ -64,7 +66,12 @@ func setupRoutes() *echo.Echo {
 	e.Use(mw.TcpWall)
 	e.Use(mw.Auth)
 	//e.Use(RBAC)
-	e.Use(middleware.Gzip())
+	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
+		// 录屏下载为流式大文件且 .cast 文本压缩收益低，跳过实时压缩
+		Skipper: func(c echo.Context) bool {
+			return strings.HasSuffix(c.Path(), "/recording")
+		},
+	}))
 
 	accountApi := new(api.AccountApi)
 	guacamoleApi := new(api.GuacamoleApi)
@@ -210,7 +217,7 @@ func setupRoutes() *echo.Echo {
 
 		sessions.POST("/:id/ls", SessionApi.SessionLsEndpoint)
 		sessions.GET("/:id/download", SessionApi.SessionDownloadEndpoint)
-	sessions.GET("/:id/preview", SessionApi.SessionPreviewEndpoint)
+		sessions.GET("/:id/preview", SessionApi.SessionPreviewEndpoint)
 		sessions.POST("/:id/upload", SessionApi.SessionUploadEndpoint)
 		sessions.POST("/:id/edit", SessionApi.SessionEditEndpoint)
 		sessions.POST("/:id/mkdir", SessionApi.SessionMkDirEndpoint)

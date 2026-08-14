@@ -7,6 +7,7 @@ import (
 	"next-terminal/server/common/guacamole"
 	"next-terminal/server/global/session"
 	"next-terminal/server/log"
+	"next-terminal/server/service"
 )
 
 type GuacamoleHandler struct {
@@ -33,6 +34,8 @@ func (r GuacamoleHandler) Start() {
 				log.Error("guacamole handler goroutine panic", log.String("panic", fmt.Sprintf("%v", err)))
 			}
 		}()
+		// 最终关闭回调：Session.Close 时 cancel，防止 handler goroutine 泄漏（R1）
+		r.sess.SetOnClose(r.cancel)
 		for {
 			select {
 			case <-r.ctx.Done():
@@ -41,6 +44,11 @@ func (r GuacamoleHandler) Start() {
 				instruction, err := r.tunnel.Read()
 				if err != nil {
 					log.Warn("guacd 隧道读取失败，RDP 连接断开", log.NamedError("err", err))
+					if r.sess.IsDetached() {
+						// 宽限期内底层连接已死，重连无意义：立即最终关闭（R3）
+						service.SessionService.CloseSessionById(r.sess.ID, TunnelClosed, "远程连接已关闭")
+						return
+					}
 					guacamole.Disconnect(r.sess.WebSocket, TunnelClosed, "远程连接已关闭")
 					return
 				}
@@ -51,10 +59,11 @@ func (r GuacamoleHandler) Start() {
 				// 与 CloseSessionById 的 WriteCloseMessage 共享同一把锁，杜绝并发写同一 ws.Conn
 				if err := r.sess.WriteString(string(instruction)); err != nil {
 					log.Warn("guacd 写入 WebSocket 失败", log.NamedError("err", err))
-					// 写失败后主动关闭隧道与 ws：主循环的 ReadMessage 立即报错走正常清理链，
-					// 原实现仅 return，guacd 连接悬挂且 nop 保活使其永不释放
-					_ = r.tunnel.Close()
-					_ = r.sess.WebSocket.Close()
+					// 写失败说明浏览器侧 ws 已死亡：仅关闭 ws（不关隧道），
+					// 主循环随 ReadMessage 失败进入 Detach 宽限期等待重连
+					if r.sess.WebSocket != nil {
+						_ = r.sess.WebSocket.Close()
+					}
 					return
 				}
 			}

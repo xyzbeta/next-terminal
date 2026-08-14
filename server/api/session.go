@@ -20,11 +20,16 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 )
 
 type SessionApi struct{}
+
+// recordingCache 断开会话的录屏存在性缓存：断开后录屏状态不再变化，
+// 避免会话列表每页每条记录一次磁盘 stat（sessionId → exists）
+var recordingCache sync.Map
 
 func (api SessionApi) SessionPagingEndpoint(c echo.Context) error {
 	pageIndex, _ := strconv.Atoi(c.QueryParam("pageIndex"))
@@ -52,10 +57,21 @@ func (api SessionApi) SessionPagingEndpoint(c echo.Context) error {
 				recording = items[i].Recording + "/recording"
 			}
 
-			if utils.FileExists(recording) {
-				items[i].Recording = "1"
+			// 录屏存在性缓存：断开会话录屏状态不变，命中缓存跳过磁盘 stat
+			if v, ok := recordingCache.Load(items[i].ID); ok {
+				if v.(bool) {
+					items[i].Recording = "1"
+				} else {
+					items[i].Recording = "0"
+				}
 			} else {
-				items[i].Recording = "0"
+				exists := utils.FileExists(recording)
+				recordingCache.Store(items[i].ID, exists)
+				if exists {
+					items[i].Recording = "1"
+				} else {
+					items[i].Recording = "0"
+				}
 			}
 		} else {
 			items[i].Recording = "0"
@@ -193,6 +209,8 @@ func (api SessionApi) SessionCreateEndpoint(c echo.Context) error {
 		"fileSystem": s.FileSystem,
 		"copy":       s.Copy,
 		"paste":      s.Paste,
+		// 断线重连令牌：HMAC(sessionId)，会话存活期有效（前端存 sessionStorage，跨刷新可用）
+		"reconnectToken": session.ReconnectToken(s.ID),
 	})
 }
 

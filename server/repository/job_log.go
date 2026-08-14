@@ -32,7 +32,8 @@ func (r jobLogRepository) FindByJobId(c context.Context, jobId string, pageIndex
 
 func (r jobLogRepository) FindOutTimeLog(c context.Context, dayLimit int) (o []model.JobLog, err error) {
 	limitTime := time.Now().Add(time.Duration(-dayLimit*24) * time.Hour)
-	err = r.GetDB(c).Where("timestamp < ?", limitTime).Find(&o).Error
+	// 仅取 ID：清理任务只需主键
+	err = r.GetDB(c).Select("id").Where("timestamp < ?", limitTime).Find(&o).Error
 	return
 }
 

@@ -69,6 +69,10 @@ func (t *Ticker) SetupTicker() {
 }
 
 func systemLoad() error {
+	// 写锁保护：overview API 并发 marshal 同一对象为数据竞争；
+	// 锁内含 cpu.Percent 采样（约 1s），读侧最坏等待 1s（前端 5s 轮询，可接受）
+	stat.SystemLoadMutex.Lock()
+	defer stat.SystemLoadMutex.Unlock()
 
 	beforeBytesRead, beforeBytesWrite, err := ioCounter()
 	if err != nil {
