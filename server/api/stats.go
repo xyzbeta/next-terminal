@@ -73,6 +73,15 @@ type Stat struct {
 	CPU            CPU                `json:"cpu"`
 }
 
+// runRemote 执行远程命令并包装错误上下文（生产曾出现裸 "Process exited with status 1" 无法定位命令）
+func runRemote(client *ssh.Client, cmd string) (string, error) {
+	out, err := utils.RunCommand(client, cmd)
+	if err != nil {
+		return "", fmt.Errorf("远程命令 %q 执行失败: %w", cmd, err)
+	}
+	return out, nil
+}
+
 func GetAllStats(nextSession *session.Session) (*Stat, error) {
 	client := nextSession.NextTerminal.SshClient
 	start := time.Now()
@@ -123,7 +132,7 @@ func GetAllStats(nextSession *session.Session) (*Stat, error) {
 
 func getHostname(client *ssh.Client, stat *Stat) (err error) {
 	defer utils.TimeWatcher("getHostname")
-	hostname, err := utils.RunCommand(client, "/bin/hostname -f")
+	hostname, err := runRemote(client, "/bin/hostname -f")
 	if err != nil {
 		return
 	}
@@ -133,7 +142,7 @@ func getHostname(client *ssh.Client, stat *Stat) (err error) {
 
 func getUptime(client *ssh.Client, stat *Stat) (err error) {
 	defer utils.TimeWatcher("getUptime")
-	uptime, err := utils.RunCommand(client, "/bin/cat /proc/uptime")
+	uptime, err := runRemote(client, "/bin/cat /proc/uptime")
 	if err != nil {
 		return
 	}
@@ -152,7 +161,7 @@ func getUptime(client *ssh.Client, stat *Stat) (err error) {
 
 func getLoad(client *ssh.Client, stat *Stat) (err error) {
 	defer utils.TimeWatcher("getLoad")
-	line, err := utils.RunCommand(client, "/bin/cat /proc/loadavg")
+	line, err := runRemote(client, "/bin/cat /proc/loadavg")
 	if err != nil {
 		return
 	}
@@ -174,7 +183,7 @@ func getLoad(client *ssh.Client, stat *Stat) (err error) {
 
 func getMem(client *ssh.Client, stat *Stat) (err error) {
 	defer utils.TimeWatcher("getMem")
-	lines, err := utils.RunCommand(client, "/bin/cat /proc/meminfo")
+	lines, err := runRemote(client, "/bin/cat /proc/meminfo")
 	if err != nil {
 		return
 	}
@@ -212,7 +221,7 @@ func getMem(client *ssh.Client, stat *Stat) (err error) {
 
 func getFileSystems(client *ssh.Client, stat *Stat) (err error) {
 	defer utils.TimeWatcher("getFileSystems")
-	lines, err := utils.RunCommand(client, "/bin/df -B1")
+	lines, err := runRemote(client, "/bin/df -B1")
 	if err != nil {
 		return
 	}
@@ -249,10 +258,10 @@ func getFileSystems(client *ssh.Client, stat *Stat) (err error) {
 func getInterfaces(client *ssh.Client, stats *Stat) (err error) {
 	defer utils.TimeWatcher("getInterfaces")
 	var lines string
-	lines, err = utils.RunCommand(client, "/bin/ip -o addr")
+	lines, err = runRemote(client, "/bin/ip -o addr")
 	if err != nil {
 		// try /sbin/ip
-		lines, err = utils.RunCommand(client, "/sbin/ip -o addr")
+		lines, err = runRemote(client, "/sbin/ip -o addr")
 		if err != nil {
 			return
 		}
@@ -365,7 +374,7 @@ var preCPUs sync.Map
 
 func getCPU(sessionId string, client *ssh.Client, stats *Stat) (err error) {
 	defer utils.TimeWatcher("getCPU")
-	lines, err := utils.RunCommand(client, "/bin/cat /proc/stat")
+	lines, err := runRemote(client, "/bin/cat /proc/stat")
 	if err != nil {
 		return
 	}

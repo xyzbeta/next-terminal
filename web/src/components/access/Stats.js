@@ -41,7 +41,8 @@ const Stats = ({sessionId, visible, queryInterval = 5000}) => {
         enabled: visible,
         onSuccess: (data) => {
             setPrevStats(stats);
-            setStats(data);
+            // 合并默认值：API 失败返回空对象时面板显示零值而非白屏崩溃
+            setStats({...defaultStats, ...(data || {})});
         }
     });
 
