@@ -118,11 +118,14 @@ const Asset = () => {
                     <HolderOutlined
                         style={{
                             cursor: 'grab',
-                            color: hoverTargetId === record['id'] ? '#1890ff' : '#999',
-                            background: hoverTargetId === record['id'] ? 'rgba(24,144,255,0.15)' : 'transparent',
+                            // 深色图标 + 浅灰底芯片：白底列表上清晰可见（此前白色小手在白底上看不清）
+                            color: hoverTargetId === record['id'] ? '#1890ff' : '#595959',
+                            background: hoverTargetId === record['id'] ? 'rgba(24,144,255,0.12)' : '#f5f5f5',
+                            border: hoverTargetId === record['id'] ? '1px solid #1890ff' : '1px solid #d9d9d9',
                             borderRadius: 4,
-                            padding: '2px 4px',
-                            opacity: draggingAssetId === record['id'] ? 0.35 : 1,
+                            padding: '3px 6px',
+                            fontSize: 14,
+                            opacity: draggingAssetId === record['id'] ? 0.4 : 1,
                             transition: 'all 0.2s'
                         }}
                         draggable
