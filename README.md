@@ -183,7 +183,6 @@ Copyright © 2020-2026 dushixiang, All Rights Reserved.
 | 项目 | 说明 |
 |------|------|
 | RDP resize-method | 使用 `reconnect` 而非 `display-update`。前者在所有 Windows 版本均可靠（缩放时 1-2s 短暂重连），后者需 RDP 8.0+ 在某些环境会导致连接断开 |
-| RDP 断线重连 | `ValidateReconnectToken` 返回 false，重连功能暂不可用 |
 
 ---
 
