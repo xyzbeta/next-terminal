@@ -6,8 +6,8 @@ class AssetApi extends Api {
         super("assets");
     }
 
-    sort = async (ids) => {
-        return await request.post(`/${this.group}/sort`, ids);
+    move = async (id, direction) => {
+        return await request.post(`/${this.group}/move`, {id: id, direction: direction});
     }
 
     GetAll = async (protocol = '') => {

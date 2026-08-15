@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"next-terminal/server/config"
 	"next-terminal/server/model"
 	"next-terminal/server/utils"
+
+	"gorm.io/gorm"
 )
 
 var AssetRepository = new(assetRepository)
@@ -25,7 +28,7 @@ func (r assetRepository) FindAll(c context.Context) (o []model.Asset, err error)
 	return
 }
 
-// SaveSortOrder 按传入顺序批量重排 sort_order（拖动排序保存）
+// SaveSortOrder 按传入顺序批量重排 sort_order（保留兼容）
 func (r assetRepository) SaveSortOrder(c context.Context, ids []string) error {
 	for i, id := range ids {
 		if err := r.GetDB(c).Model(&model.Asset{}).Where("id = ?", id).Update("sort_order", i+1).Error; err != nil {
@@ -33,6 +36,44 @@ func (r assetRepository) SaveSortOrder(c context.Context, ids []string) error {
 		}
 	}
 	return nil
+}
+
+// MoveSortOrder 在数据库真实顺序上把指定资产上移/下移一位（事务内交换并重编号）
+// 相比全量重排，单次移动语义不受客户端视图偏差影响
+func (r assetRepository) MoveSortOrder(c context.Context, id string, up bool) error {
+	return r.GetDB(c).Transaction(func(tx *gorm.DB) error {
+		var assets []model.Asset
+		if err := tx.Order("sort_order asc, created asc").Find(&assets).Error; err != nil {
+			return err
+		}
+		index := -1
+		for i, a := range assets {
+			if a.ID == id {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			return errors.New("资产不存在")
+		}
+		target := index + 1
+		if up {
+			target = index - 1
+		}
+		if target < 0 || target >= len(assets) {
+			if up {
+				return errors.New("已在最顶部")
+			}
+			return errors.New("已在最底部")
+		}
+		assets[index], assets[target] = assets[target], assets[index]
+		for i, a := range assets {
+			if err := tx.Model(&model.Asset{}).Where("id = ?", a.ID).Update("sort_order", i+1).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r assetRepository) FindByIds(c context.Context, assetIds []string) (o []model.Asset, err error) {

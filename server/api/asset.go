@@ -20,6 +20,22 @@ import (
 
 type AssetApi struct{}
 
+// AssetMoveEndpoint 资产上移/下移一位（body: {id, direction: "up"|"down"}）
+func (assetApi AssetApi) AssetMoveEndpoint(c echo.Context) error {
+	var req struct {
+		ID        string `json:"id"`
+		Direction string `json:"direction"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return err
+	}
+	up := req.Direction == "up"
+	if err := repository.AssetRepository.MoveSortOrder(context.TODO(), req.ID, up); err != nil {
+		return Fail(c, -1, err.Error())
+	}
+	return Success(c, nil)
+}
+
 func (assetApi AssetApi) AssetSortEndpoint(c echo.Context) error {
 	var ids []string
 	if err := c.Bind(&ids); err != nil {

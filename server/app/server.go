@@ -163,6 +163,7 @@ func setupRoutes() *echo.Echo {
 		assets.POST("", AssetApi.AssetCreateEndpoint)
 		assets.POST("/import", AssetApi.AssetImportEndpoint)
 		assets.POST("/sort", AssetApi.AssetSortEndpoint)
+		assets.POST("/move", AssetApi.AssetMoveEndpoint)
 		assets.GET("/paging", AssetApi.AssetPagingEndpoint)
 		assets.POST("/:id/tcping", AssetApi.AssetTcpingEndpoint)
 		assets.PUT("/:id", AssetApi.AssetUpdateEndpoint)

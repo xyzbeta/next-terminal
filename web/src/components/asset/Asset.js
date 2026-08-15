@@ -10,12 +10,13 @@ import {
     Popconfirm,
     Popover,
     Select,
+    Space,
     Table,
     Tag,
     Tooltip,
     Upload
 } from "antd";
-import {HolderOutlined} from "@ant-design/icons";
+import {ArrowDownOutlined, ArrowUpOutlined} from "@ant-design/icons";
 import {Link, useNavigate} from "react-router-dom";
 import {ProTable, TableDropdown} from "@ant-design/pro-components";
 import assetApi from "../../api/asset";
@@ -60,100 +61,37 @@ const Asset = () => {
 
     let [selectedRow, setSelectedRow] = useState(undefined);
     let [changeOwnerVisible, setChangeOwnerVisible] = useState(false);
-    let [draggingAssetId, setDraggingAssetId] = useState(null);
-    let [hoverTargetId, setHoverTargetId] = useState(null);
 
     const [columnsStateMap, setColumnsStateMap] = useColumnState(ColumnState.ASSET);
 
     const tagQuery = useQuery('getAllTag', tagApi.getAll);
     let navigate = useNavigate();
 
-    // 拖动排序：以全量资产为准重排（避免跨页拖动语义错误），保存后刷新列表
-    const handleAssetSortDrop = async (targetId) => {
-        if (!draggingAssetId || draggingAssetId === targetId) {
-            setDraggingAssetId(null);
-            return;
-        }
-        const all = await assetApi.GetAll();
-        const dragIndex = all.findIndex(a => a['id'] === draggingAssetId);
-        const targetIndex = all.findIndex(a => a['id'] === targetId);
-        if (dragIndex < 0 || targetIndex < 0) {
-            setDraggingAssetId(null);
-            return;
-        }
-        const [moved] = all.splice(dragIndex, 1);
-        all.splice(targetIndex, 0, moved);
-        setDraggingAssetId(null);
-        setHoverTargetId(null);
-        // 乐观更新：先按新顺序刷新本地列表（服务端重载随后确认）
-        setItems(items => {
-            const visibleIds = items.map(a => a['id']);
-            if (visibleIds.includes(draggingAssetId) && visibleIds.includes(targetId)) {
-                const reordered = [...items];
-                const from = visibleIds.indexOf(draggingAssetId);
-                const to = visibleIds.indexOf(targetId);
-                const [m] = reordered.splice(from, 1);
-                reordered.splice(to, 0, m);
-                return reordered;
-            }
-            return items;
-        });
-        let result = await assetApi.sort(all.map(a => a['id']));
+    // 上移/下移排序：服务端在数据库真实顺序上执行单次移动（免疫客户端视图偏差）
+    const handleAssetMove = async (record, direction) => {
+        let result = await assetApi.move(record['id'], direction);
         if (result['code'] === 1) {
-            message.success('排序已保存');
             actionRef.current && actionRef.current.reload();
         } else {
-            message.error(result['message'] || '排序保存失败');
+            message.info(result['message'] || '移动失败');
         }
     };
 
     const columns = [
         {
-            title: '',
-            dataIndex: 'sortHandle',
-            width: 28,
+            title: '排序',
+            dataIndex: 'sortAction',
+            width: 60,
             fixed: 'left',
             render: (text, record) => (
-                <Tooltip title="拖动调整排序">
-                    <HolderOutlined
-                        style={{
-                            cursor: 'grab',
-                            // 深色图标 + 浅灰底芯片：白底列表上清晰可见（此前白色小手在白底上看不清）
-                            color: hoverTargetId === record['id'] ? '#1890ff' : '#595959',
-                            background: hoverTargetId === record['id'] ? 'rgba(24,144,255,0.12)' : '#f5f5f5',
-                            border: hoverTargetId === record['id'] ? '1px solid #1890ff' : '1px solid #d9d9d9',
-                            borderRadius: 4,
-                            padding: '3px 6px',
-                            fontSize: 14,
-                            opacity: draggingAssetId === record['id'] ? 0.4 : 1,
-                            transition: 'all 0.2s'
-                        }}
-                        draggable
-                        onDragStart={(e) => {
-                            setDraggingAssetId(record['id']);
-                            e.dataTransfer.effectAllowed = 'move';
-                        }}
-                        onDragEnd={() => {
-                            setDraggingAssetId(null);
-                            setHoverTargetId(null);
-                        }}
-                        onDragOver={(e) => {
-                            e.preventDefault();
-                            if (hoverTargetId !== record['id']) {
-                                setHoverTargetId(record['id']);
-                            }
-                        }}
-                        onDragLeave={() => {
-                            if (hoverTargetId === record['id']) {
-                                setHoverTargetId(null);
-                            }
-                        }}
-                        onDrop={(e) => {
-                            e.preventDefault();
-                            handleAssetSortDrop(record['id']);
-                        }}
-                    />
-                </Tooltip>
+                <Space size={2}>
+                    <Button type="text" size="small"
+                            icon={<ArrowUpOutlined style={{color: '#595959'}}/>}
+                            onClick={() => handleAssetMove(record, 'up')}/>
+                    <Button type="text" size="small"
+                            icon={<ArrowDownOutlined style={{color: '#595959'}}/>}
+                            onClick={() => handleAssetMove(record, 'down')}/>
+                </Space>
             ),
         },
         {
