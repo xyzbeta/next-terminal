@@ -110,6 +110,12 @@ func (r assetRepository) Find(c context.Context, pageIndex, pageSize int, name, 
 		order = "desc"
 	}
 
+	// 未指定列排序时按用户拖动排序展示（sort_order），否则按所选列
+	if field == "" {
+		field = "sort_order"
+		order = "asc"
+	}
+
 	switch field {
 	case "name":
 	case "protocol":

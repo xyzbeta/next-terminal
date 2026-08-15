@@ -61,6 +61,7 @@ const Asset = () => {
     let [selectedRow, setSelectedRow] = useState(undefined);
     let [changeOwnerVisible, setChangeOwnerVisible] = useState(false);
     let [draggingAssetId, setDraggingAssetId] = useState(null);
+    let [hoverTargetId, setHoverTargetId] = useState(null);
 
     const [columnsStateMap, setColumnsStateMap] = useColumnState(ColumnState.ASSET);
 
@@ -83,6 +84,20 @@ const Asset = () => {
         const [moved] = all.splice(dragIndex, 1);
         all.splice(targetIndex, 0, moved);
         setDraggingAssetId(null);
+        setHoverTargetId(null);
+        // 乐观更新：先按新顺序刷新本地列表（服务端重载随后确认）
+        setItems(items => {
+            const visibleIds = items.map(a => a['id']);
+            if (visibleIds.includes(draggingAssetId) && visibleIds.includes(targetId)) {
+                const reordered = [...items];
+                const from = visibleIds.indexOf(draggingAssetId);
+                const to = visibleIds.indexOf(targetId);
+                const [m] = reordered.splice(from, 1);
+                reordered.splice(to, 0, m);
+                return reordered;
+            }
+            return items;
+        });
         let result = await assetApi.sort(all.map(a => a['id']));
         if (result['code'] === 1) {
             message.success('排序已保存');
@@ -99,23 +114,43 @@ const Asset = () => {
             width: 28,
             fixed: 'left',
             render: (text, record) => (
-                <HolderOutlined
-                    style={{cursor: 'grab', color: '#999'}}
-                    draggable
-                    onDragStart={() => {
-                        setDraggingAssetId(record['id']);
-                    }}
-                    onDragEnd={() => {
-                        setDraggingAssetId(null);
-                    }}
-                    onDragOver={(e) => {
-                        e.preventDefault();
-                    }}
-                    onDrop={(e) => {
-                        e.preventDefault();
-                        handleAssetSortDrop(record['id']);
-                    }}
-                />
+                <Tooltip title="拖动调整排序">
+                    <HolderOutlined
+                        style={{
+                            cursor: 'grab',
+                            color: hoverTargetId === record['id'] ? '#1890ff' : '#999',
+                            background: hoverTargetId === record['id'] ? 'rgba(24,144,255,0.15)' : 'transparent',
+                            borderRadius: 4,
+                            padding: '2px 4px',
+                            opacity: draggingAssetId === record['id'] ? 0.35 : 1,
+                            transition: 'all 0.2s'
+                        }}
+                        draggable
+                        onDragStart={(e) => {
+                            setDraggingAssetId(record['id']);
+                            e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onDragEnd={() => {
+                            setDraggingAssetId(null);
+                            setHoverTargetId(null);
+                        }}
+                        onDragOver={(e) => {
+                            e.preventDefault();
+                            if (hoverTargetId !== record['id']) {
+                                setHoverTargetId(record['id']);
+                            }
+                        }}
+                        onDragLeave={() => {
+                            if (hoverTargetId === record['id']) {
+                                setHoverTargetId(null);
+                            }
+                        }}
+                        onDrop={(e) => {
+                            e.preventDefault();
+                            handleAssetSortDrop(record['id']);
+                        }}
+                    />
+                </Tooltip>
             ),
         },
         {
