@@ -179,6 +179,28 @@ class FileSystem extends Component {
         this.loadFiles(event.target.value);
     }
 
+    // 拖拽上传：文件拖入文件管理区即上传至当前目录（复用 uploadFile 与进度通知）
+    handleDragDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const files = e.dataTransfer && e.dataTransfer.files;
+        if (!files || files.length === 0) {
+            return;
+        }
+        let uploadEndCount = 0;
+        const increaseUploadEndCount = () => {
+            uploadEndCount++;
+            return uploadEndCount;
+        }
+        for (let i = 0; i < files.length; i++) {
+            this.uploadFile(files[i], this.state.currentDirectory, () => {
+                if (increaseUploadEndCount() === files.length) {
+                    this.refresh();
+                }
+            });
+        }
+    }
+
     handleUploadDir = () => {
         let files = window.document.getElementById('dir-upload').files;
         let uploadEndCount = 0;
@@ -689,7 +711,11 @@ class FileSystem extends Component {
 
         return (
             <div>
-                <Card title={title} bordered={true} size="small" style={{minHeight: this.state.minHeight}}>
+                <Card title={title} bordered={true} size="small" style={{minHeight: this.state.minHeight}}
+                      onDragOver={(e) => {
+                          e.preventDefault();
+                      }}
+                      onDrop={this.handleDragDrop}>
 
                     <Table columns={columns}
                            rowSelection={rowSelection}

@@ -21,8 +21,18 @@ type assetRepository struct {
 }
 
 func (r assetRepository) FindAll(c context.Context) (o []model.Asset, err error) {
-	err = r.GetDB(c).Find(&o).Error
+	err = r.GetDB(c).Order("sort_order asc, created asc").Find(&o).Error
 	return
+}
+
+// SaveSortOrder 按传入顺序批量重排 sort_order（拖动排序保存）
+func (r assetRepository) SaveSortOrder(c context.Context, ids []string) error {
+	for i, id := range ids {
+		if err := r.GetDB(c).Model(&model.Asset{}).Where("id = ?", id).Update("sort_order", i+1).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r assetRepository) FindByIds(c context.Context, assetIds []string) (o []model.Asset, err error) {

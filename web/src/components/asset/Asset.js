@@ -4,6 +4,7 @@ import {
     Badge,
     Button,
     Layout,
+    message,
     Modal,
     notification,
     Popconfirm,
@@ -14,6 +15,7 @@ import {
     Tooltip,
     Upload
 } from "antd";
+import {HolderOutlined} from "@ant-design/icons";
 import {Link, useNavigate} from "react-router-dom";
 import {ProTable, TableDropdown} from "@ant-design/pro-components";
 import assetApi from "../../api/asset";
@@ -58,13 +60,64 @@ const Asset = () => {
 
     let [selectedRow, setSelectedRow] = useState(undefined);
     let [changeOwnerVisible, setChangeOwnerVisible] = useState(false);
+    let [draggingAssetId, setDraggingAssetId] = useState(null);
 
     const [columnsStateMap, setColumnsStateMap] = useColumnState(ColumnState.ASSET);
 
     const tagQuery = useQuery('getAllTag', tagApi.getAll);
     let navigate = useNavigate();
 
+    // 拖动排序：以全量资产为准重排（避免跨页拖动语义错误），保存后刷新列表
+    const handleAssetSortDrop = async (targetId) => {
+        if (!draggingAssetId || draggingAssetId === targetId) {
+            setDraggingAssetId(null);
+            return;
+        }
+        const all = await assetApi.GetAll();
+        const dragIndex = all.findIndex(a => a['id'] === draggingAssetId);
+        const targetIndex = all.findIndex(a => a['id'] === targetId);
+        if (dragIndex < 0 || targetIndex < 0) {
+            setDraggingAssetId(null);
+            return;
+        }
+        const [moved] = all.splice(dragIndex, 1);
+        all.splice(targetIndex, 0, moved);
+        setDraggingAssetId(null);
+        let result = await assetApi.sort(all.map(a => a['id']));
+        if (result['code'] === 1) {
+            message.success('排序已保存');
+            actionRef.current && actionRef.current.reload();
+        } else {
+            message.error(result['message'] || '排序保存失败');
+        }
+    };
+
     const columns = [
+        {
+            title: '',
+            dataIndex: 'sortHandle',
+            width: 28,
+            fixed: 'left',
+            render: (text, record) => (
+                <HolderOutlined
+                    style={{cursor: 'grab', color: '#999'}}
+                    draggable
+                    onDragStart={() => {
+                        setDraggingAssetId(record['id']);
+                    }}
+                    onDragEnd={() => {
+                        setDraggingAssetId(null);
+                    }}
+                    onDragOver={(e) => {
+                        e.preventDefault();
+                    }}
+                    onDrop={(e) => {
+                        e.preventDefault();
+                        handleAssetSortDrop(record['id']);
+                    }}
+                />
+            ),
+        },
         {
             dataIndex: 'index',
             valueType: 'indexBorder',

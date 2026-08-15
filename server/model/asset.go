@@ -27,6 +27,7 @@ type Asset struct {
 	Owner           string          `gorm:"index,type:varchar(36)" json:"owner"`
 	Encrypted       bool            `json:"encrypted"`
 	AccessGatewayId string          `gorm:"type:varchar(36)" json:"accessGatewayId"`
+	SortOrder       int             `gorm:"index" json:"sortOrder"` // 列表拖动排序（值小在前）
 }
 
 type AssetForPage struct {

@@ -173,8 +173,9 @@ func NewTunnel(address string, config *Configuration) (ret *Tunnel, err error) {
 
 	ret = &Tunnel{}
 	ret.conn = conn
-	ret.reader = bufio.NewReader(conn)
-	ret.writer = bufio.NewWriter(conn)
+	// 32KB 缓冲：RDP 图像帧达 MB 级，大缓冲减少 syscall 次数（默认 4096）
+	ret.reader = bufio.NewReaderSize(conn, 32*1024)
+	ret.writer = bufio.NewWriterSize(conn, 32*1024)
 	ret.Config = config
 
 	selectArg := config.ConnectionID

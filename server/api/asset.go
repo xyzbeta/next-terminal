@@ -20,6 +20,20 @@ import (
 
 type AssetApi struct{}
 
+func (assetApi AssetApi) AssetSortEndpoint(c echo.Context) error {
+	var ids []string
+	if err := c.Bind(&ids); err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return errors.New("排序列表为空")
+	}
+	if err := repository.AssetRepository.SaveSortOrder(context.TODO(), ids); err != nil {
+		return err
+	}
+	return Success(c, nil)
+}
+
 func (assetApi AssetApi) AssetCreateEndpoint(c echo.Context) error {
 	m := maps.Map{}
 	if err := c.Bind(&m); err != nil {
