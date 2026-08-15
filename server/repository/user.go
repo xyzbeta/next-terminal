@@ -151,11 +151,11 @@ func (r userRepository) DeleteBySource(c context.Context, source string) error {
 }
 
 func (r userRepository) CountOnlineUser(c context.Context) (total int64, err error) {
-	err = r.GetDB(c).Where("online = ?", true).Count(&total).Error
+	err = r.GetDB(c).Model(&model.User{}).Where("online = ?", true).Count(&total).Error
 	return
 }
 
 func (r userRepository) Count(c context.Context) (total int64, err error) {
-	err = r.GetDB(c).Count(&total).Error
+	err = r.GetDB(c).Model(&model.User{}).Count(&total).Error
 	return
 }

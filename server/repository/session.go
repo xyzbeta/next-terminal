@@ -130,12 +130,12 @@ func (r sessionRepository) DeleteByStatus(c context.Context, status string) erro
 }
 
 func (r sessionRepository) CountOnlineSession(c context.Context) (total int64, err error) {
-	err = r.GetDB(c).Where("status = ?", nt.Connected).Count(&total).Error
+	err = r.GetDB(c).Model(&model.Session{}).Where("status = ?", nt.Connected).Count(&total).Error
 	return
 }
 
 func (r sessionRepository) CountOfflineSession(c context.Context) (total int64, err error) {
-	err = r.GetDB(c).Where("status = ?", nt.Disconnected).Count(&total).Error
+	err = r.GetDB(c).Model(&model.Session{}).Where("status = ?", nt.Disconnected).Count(&total).Error
 	return
 }
 
@@ -145,7 +145,7 @@ func (r sessionRepository) EmptyPassword(c context.Context) error {
 }
 
 func (r sessionRepository) CountByStatus(c context.Context, status string) (total int64, err error) {
-	err = r.GetDB(c).Where("status = ?", status).Count(&total).Error
+	err = r.GetDB(c).Model(&model.Session{}).Where("status = ?", status).Count(&total).Error
 	return
 }
 

@@ -94,7 +94,7 @@ func (r loginLogRepository) Update(c context.Context, o *model.LoginLog) error {
 }
 
 func (r loginLogRepository) CountByState(c context.Context, state string) (total int64, err error) {
-	err = r.GetDB(c).Where("state = ?", state).Count(&total).Error
+	err = r.GetDB(c).Model(&model.LoginLog{}).Where("state = ?", state).Count(&total).Error
 	return
 }
 
