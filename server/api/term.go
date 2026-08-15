@@ -63,6 +63,10 @@ func (api WebTerminalApi) SshEndpoint(c echo.Context) error {
 	// 断线重连：会话仍在内存（宽限期内或在线）时只允许挂接既有 SSH 连接，不允许重复新建
 	if existSession := session.GlobalSessionManager.GetById(sessionId); existSession != nil {
 		if existSession.TryReattach(c.QueryParam("reconnectToken"), ws) {
+			// 协议类型守卫：RDP 会话的 NextTerminal 为 nil，错误端点+有效令牌会导致空指针
+			if existSession.NextTerminal == nil {
+				return WriteMessage(ws, dto.NewMessage(Closed, "会话类型不匹配"))
+			}
 			log.Info("SSH 会话重连成功", log.String("sessionId", sessionId))
 			// 复用旧 handler 的 Write/WindowChange（其 readFormTunnel/writeToWebsocket/keepalive
 			// 持续运行，经 Session 写路径自动向新 ws 恢复输出）

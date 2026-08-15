@@ -89,6 +89,11 @@ func (api GuacamoleApi) Guacamole(c echo.Context) error {
 		}
 
 		if reconnectSession.TryReattach(c.QueryParam("reconnectToken"), ws) {
+			// 协议类型守卫：SSH 会话的 GuacdTunnel 为 nil，错误端点+有效令牌会导致空指针
+			if reconnectSession.GuacdTunnel == nil {
+				guacamole.Disconnect(ws, ForcedDisconnect, "会话类型不匹配")
+				return nil
+			}
 			log.Info("Guacamole 会话重连成功", log.String("sessionId", sessionId))
 			// 输入循环：浏览器 → 既有 guacd 隧道（旧 handler 经 Session 写路径自动向新 ws 转发，
 			// 此处不新建 handler——双读者会撕裂隧道帧）

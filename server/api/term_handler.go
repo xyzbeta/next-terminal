@@ -179,7 +179,13 @@ func (r *TermHandler) flush() bool {
 	data := r.buf.Bytes()
 	if err := r.sess.WriteMessageBytes(Data, data); err != nil {
 		log.Warn("flush 发送 WebSocket 失败", log.String("sessionId", r.sessionId), log.NamedError("err", err))
-		return false
+		// 输出泵不退出：关闭 ws 促使主循环 Detach 进入宽限期，宽限期内继续读 SSH
+		// stdout 丢弃，重连挂接后自动恢复输出（若在此返回，writeToWebsocket 退出，
+		// 重连成功后终端无任何输出——bug：写失败一次即杀死输出泵）
+		if r.sess.WebSocket != nil {
+			_ = r.sess.WebSocket.Close()
+		}
+		return true
 	}
 	if r.isRecording {
 		_ = r.nextTerminal.Recorder.WriteData(string(data))

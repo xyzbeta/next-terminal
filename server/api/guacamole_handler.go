@@ -59,12 +59,14 @@ func (r GuacamoleHandler) Start() {
 				// 与 CloseSessionById 的 WriteCloseMessage 共享同一把锁，杜绝并发写同一 ws.Conn
 				if err := r.sess.WriteString(string(instruction)); err != nil {
 					log.Warn("guacd 写入 WebSocket 失败", log.NamedError("err", err))
-					// 写失败说明浏览器侧 ws 已死亡：仅关闭 ws（不关隧道），
-					// 主循环随 ReadMessage 失败进入 Detach 宽限期等待重连
+					// 写失败**不退出输出泵**（重连设计的关键）：关闭 ws 促使主循环
+					// ReadMessage 失败进入 Detach 宽限期，后续写经 nil ws 静默丢弃；
+					// 重连挂接后自动恢复转发。若在此 return，隧道将永久失去读方，
+					// 重连成功后画面静止（bug：写失败一次即杀死输出泵）
 					if r.sess.WebSocket != nil {
 						_ = r.sess.WebSocket.Close()
 					}
-					return
+					continue
 				}
 			}
 		}

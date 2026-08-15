@@ -167,11 +167,13 @@ const Stats = ({sessionId, visible, queryInterval = 5000}) => {
                     Object.keys(network).map((key, index) => {
                         let prevNetwork = prevStats.network;
                         let rxOfSeconds = 0, txOfSeconds = 0;
+                        // 速率按实际查询间隔计算（此前硬编码 /5，非 5s 间隔数值失真）
+                        const intervalSeconds = Math.max((queryInterval || 5000) / 1000, 1);
                         if (prevNetwork[key] !== undefined) {
-                            rxOfSeconds = (network[key]['rx'] - prevNetwork[key]['rx']) / 5;
+                            rxOfSeconds = (network[key]['rx'] - prevNetwork[key]['rx']) / intervalSeconds;
                         }
                         if (prevNetwork[key] !== undefined) {
-                            txOfSeconds = (network[key]['tx'] - prevNetwork[key]['tx']) / 5;
+                            txOfSeconds = (network[key]['tx'] - prevNetwork[key]['tx']) / intervalSeconds;
                         }
 
                         return (
