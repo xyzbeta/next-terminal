@@ -121,6 +121,8 @@ func (r assetRepository) Find(c context.Context, pageIndex, pageSize int, name, 
 	case "protocol":
 	case "ip":
 	case "active":
+	case "sort_order":
+		// 拖动排序列：直接按 sort_order 排序
 	case "lastAccessTime":
 		field = "last_access_time"
 	default:
