@@ -38,6 +38,49 @@ func (r assetRepository) SaveSortOrder(c context.Context, ids []string) error {
 	return nil
 }
 
+// MoveToPosition 在数据库真实顺序上把 id 资产移动到 targetId 资产的位置（事务内完成并重编号）
+// 单步移动语义：客户端只表达意图，不提交全量顺序——免疫客户端视图偏差导致的乱序
+func (r assetRepository) MoveToPosition(c context.Context, id, targetId string) error {
+	if id == targetId {
+		return nil
+	}
+	return r.GetDB(c).Transaction(func(tx *gorm.DB) error {
+		var assets []model.Asset
+		if err := tx.Order("sort_order asc, created asc").Find(&assets).Error; err != nil {
+			return err
+		}
+		from, to := -1, -1
+		for i, a := range assets {
+			if a.ID == id {
+				from = i
+			}
+			if a.ID == targetId {
+				to = i
+			}
+		}
+		if from < 0 || to < 0 {
+			return errors.New("资产不存在")
+		}
+		moved := assets[from]
+		rest := append(assets[:from], assets[from+1:]...)
+		// 移除后目标位置索引校正
+		insertAt := to
+		for i, a := range rest {
+			if a.ID == targetId {
+				insertAt = i
+				break
+			}
+		}
+		ordered := append(rest[:insertAt], append([]model.Asset{moved}, rest[insertAt:]...)...)
+		for i, a := range ordered {
+			if err := tx.Model(&model.Asset{}).Where("id = ?", a.ID).Update("sort_order", i+1).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // MoveSortOrder 在数据库真实顺序上把指定资产上移/下移一位（事务内交换并重编号）
 // 相比全量重排，单次移动语义不受客户端视图偏差影响
 func (r assetRepository) MoveSortOrder(c context.Context, id string, up bool) error {

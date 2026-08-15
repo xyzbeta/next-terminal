@@ -25,12 +25,19 @@ func (assetApi AssetApi) AssetMoveEndpoint(c echo.Context) error {
 	var req struct {
 		ID        string `json:"id"`
 		Direction string `json:"direction"`
+		TargetID  string `json:"targetId"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return err
 	}
-	up := req.Direction == "up"
-	if err := repository.AssetRepository.MoveSortOrder(context.TODO(), req.ID, up); err != nil {
+	var err error
+	if req.TargetID != "" {
+		// 拖动排序：移动到目标位置（单步语义）
+		err = repository.AssetRepository.MoveToPosition(context.TODO(), req.ID, req.TargetID)
+	} else {
+		err = repository.AssetRepository.MoveSortOrder(context.TODO(), req.ID, req.Direction == "up")
+	}
+	if err != nil {
 		return Fail(c, -1, err.Error())
 	}
 	return Success(c, nil)

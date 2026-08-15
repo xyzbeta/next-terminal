@@ -16,7 +16,7 @@ import {
     Tooltip,
     Upload
 } from "antd";
-import {ArrowDownOutlined, ArrowUpOutlined, SortAscendingOutlined} from "@ant-design/icons";
+import {SortAscendingOutlined} from "@ant-design/icons";
 import {Link, useNavigate} from "react-router-dom";
 import {ProTable, TableDropdown} from "@ant-design/pro-components";
 import assetApi from "../../api/asset";
@@ -61,41 +61,86 @@ const Asset = () => {
 
     let [selectedRow, setSelectedRow] = useState(undefined);
     let [changeOwnerVisible, setChangeOwnerVisible] = useState(false);
-    let [sortMode, setSortMode] = useState(false); // 排序模式：仅开启时显示调整控件
+    let [sortMode, setSortMode] = useState(false); // 排序模式：仅开启时允许整行拖拽排序
+    const dragStateRef = React.useRef(null);        // {fromId, row} 拖拽中状态（DOM 级反馈）
 
     const [columnsStateMap, setColumnsStateMap] = useColumnState(ColumnState.ASSET);
 
     const tagQuery = useQuery('getAllTag', tagApi.getAll);
     let navigate = useNavigate();
 
-    // 上移/下移排序：服务端在数据库真实顺序上执行单次移动（免疫客户端视图偏差）
-    const handleAssetMove = async (record, direction) => {
-        let result = await assetApi.move(record['id'], direction);
+    // 整行拖拽排序（仅排序模式）：事件委托在表格容器上，读取 antd 行的 data-row-key
+    // 只发送单步移动意图（{id, targetId}），服务端在数据库真实顺序上移动——不会乱序
+    const rowIdOf = (target) => {
+        const tr = target && target.closest ? target.closest('tr.ant-table-row') : null;
+        return tr ? tr.getAttribute('data-row-key') : null;
+    };
+    const clearDragFeedback = () => {
+        if (dragStateRef.current) {
+            const {row} = dragStateRef.current;
+            if (row) {
+                row.style.opacity = '';
+                row.style.background = '';
+            }
+            document.querySelectorAll('.asset-drag-target-row').forEach(el => {
+                el.classList.remove('asset-drag-target-row');
+                el.style.boxShadow = '';
+            });
+            dragStateRef.current = null;
+        }
+    };
+    const handleDragStart = (e) => {
+        const id = rowIdOf(e.target);
+        if (!id) {
+            return;
+        }
+        const row = e.target.closest('tr.ant-table-row');
+        dragStateRef.current = {fromId: id, row};
+        row.style.opacity = '0.45';
+        row.style.background = '#e6f7ff';
+        e.dataTransfer.effectAllowed = 'move';
+        try {
+            e.dataTransfer.setData('text/plain', id);
+        } catch (err) {
+        }
+    };
+    const handleDragOver = (e) => {
+        const id = rowIdOf(e.target);
+        if (!id || !dragStateRef.current) {
+            return;
+        }
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        document.querySelectorAll('.asset-drag-target-row').forEach(el => {
+            el.classList.remove('asset-drag-target-row');
+            el.style.boxShadow = '';
+        });
+        if (id !== dragStateRef.current.fromId) {
+            const row = e.target.closest('tr.ant-table-row');
+            row.classList.add('asset-drag-target-row');
+            row.style.boxShadow = 'inset 0 2px 0 #1890ff';
+        }
+    };
+    const handleDrop = async (e) => {
+        e.preventDefault();
+        const targetId = rowIdOf(e.target);
+        const fromId = dragStateRef.current ? dragStateRef.current.fromId : null;
+        clearDragFeedback();
+        if (!fromId || !targetId || fromId === targetId) {
+            return;
+        }
+        let result = await assetApi.move(fromId, targetId);
         if (result['code'] === 1) {
             actionRef.current && actionRef.current.reload();
         } else {
             message.info(result['message'] || '移动失败');
         }
     };
+    const handleDragEnd = () => {
+        clearDragFeedback();
+    };
 
     const columns = [
-        // 排序模式才显示：排序是低频操作，默认界面保持干净
-        ...(sortMode ? [{
-            title: '排序',
-            dataIndex: 'sortAction',
-            width: 64,
-            fixed: 'left',
-            render: (text, record) => (
-                <Space size={2}>
-                    <Button type="text" size="small"
-                            icon={<ArrowUpOutlined style={{color: '#595959'}}/>}
-                            onClick={() => handleAssetMove(record, 'up')}/>
-                    <Button type="text" size="small"
-                            icon={<ArrowDownOutlined style={{color: '#595959'}}/>}
-                            onClick={() => handleAssetMove(record, 'down')}/>
-                </Space>
-            ),
-        }] : []),
         {
             dataIndex: 'index',
             valueType: 'indexBorder',
@@ -407,6 +452,16 @@ const Asset = () => {
     }
 
     return (<Content className="page-container">
+        {/* 排序模式下整行拖拽：事件委托读取 antd 行 data-row-key，单步移动语义防乱序 */}
+        <div
+            className={sortMode ? 'asset-sort-mode' : ''}
+            onDragStart={sortMode ? handleDragStart : undefined}
+            onDragOver={sortMode ? handleDragOver : undefined}
+            onDrop={sortMode ? handleDrop : undefined}
+            onDragEnd={sortMode ? handleDragEnd : undefined}
+        >
+        <style>{`.asset-sort-mode .ant-table-row { cursor: move; }
+.asset-sort-mode .ant-table-row:hover { background: #fafafa; }`}</style>
         <ProTable
             columns={columns}
             actionRef={actionRef}
@@ -439,7 +494,8 @@ const Asset = () => {
 
                 let queryParams = {
                     pageIndex: params.current,
-                    pageSize: params.pageSize,
+                    // 排序模式加载全部资产到一页，跨页拖拽才完整
+                    pageSize: sortMode ? 9999 : params.pageSize,
                     name: params.name,
                     type: params.type,
                     protocol: params.protocol,
@@ -458,7 +514,8 @@ const Asset = () => {
                     total: result['total']
                 };
             }}
-            rowSelection={{
+            rowKey="id"
+            rowSelection={sortMode ? undefined : {
                 // 自定义选择项参考: https://ant.design/components/table-cn/#components-table-demo-row-selection-custom
                 // 注释该行则默认不显示下拉选项
                 selections: [Table.SELECTION_ALL, Table.SELECTION_INVERT],
@@ -468,7 +525,6 @@ const Asset = () => {
                 }
             }}
             dataSource={items}
-            rowKey="id"
             search={{
                 labelWidth: 'auto',
             }}
@@ -533,12 +589,19 @@ const Asset = () => {
                             icon={<SortAscendingOutlined/>}
                             onClick={() => {
                                 setSortMode(!sortMode);
+                                if (sortMode) {
+                                    message.destroy();
+                                } else {
+                                    message.info('排序模式：拖动行调整顺序，点击完成排序退出', 3);
+                                }
+                                actionRef.current && actionRef.current.reload();
                             }}>
                         {sortMode ? '完成排序' : '排序'}
                     </Button>
                 ];
             }}
         />
+        </div>
 
         <AssetModal
             id={selectedRowKey}
