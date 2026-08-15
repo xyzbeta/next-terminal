@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 
 import {
     Badge,
@@ -139,6 +139,23 @@ const Asset = () => {
     const handleDragEnd = () => {
         clearDragFeedback();
     };
+
+    // 排序模式下给每行设置 draggable=true：HTML5 拖拽仅在 draggable 元素上触发，
+    // 否则鼠标拖动退化为文本选择（ProTable 不透传 onRow，用 DOM 后处理）
+    useEffect(() => {
+        if (!sortMode) {
+            return;
+        }
+        const applyDraggable = () => {
+            document.querySelectorAll('.asset-sort-mode .ant-table-row').forEach(tr => {
+                tr.setAttribute('draggable', 'true');
+            });
+        };
+        applyDraggable();
+        // 表格数据重渲染后行节点重建，延迟再应用一次
+        const timer = setTimeout(applyDraggable, 300);
+        return () => clearTimeout(timer);
+    }, [sortMode, items]);
 
     const columns = [
         {
@@ -460,7 +477,8 @@ const Asset = () => {
             onDrop={sortMode ? handleDrop : undefined}
             onDragEnd={sortMode ? handleDragEnd : undefined}
         >
-        <style>{`.asset-sort-mode .ant-table-row { cursor: move; }
+        <style>{`.asset-sort-mode { user-select: none; }
+.asset-sort-mode .ant-table-row { cursor: move; }
 .asset-sort-mode .ant-table-row:hover { background: #fafafa; }`}</style>
         <ProTable
             columns={columns}
