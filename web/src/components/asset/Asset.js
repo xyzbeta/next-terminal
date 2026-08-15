@@ -16,7 +16,7 @@ import {
     Tooltip,
     Upload
 } from "antd";
-import {ArrowDownOutlined, ArrowUpOutlined} from "@ant-design/icons";
+import {ArrowDownOutlined, ArrowUpOutlined, SortAscendingOutlined} from "@ant-design/icons";
 import {Link, useNavigate} from "react-router-dom";
 import {ProTable, TableDropdown} from "@ant-design/pro-components";
 import assetApi from "../../api/asset";
@@ -61,6 +61,7 @@ const Asset = () => {
 
     let [selectedRow, setSelectedRow] = useState(undefined);
     let [changeOwnerVisible, setChangeOwnerVisible] = useState(false);
+    let [sortMode, setSortMode] = useState(false); // 排序模式：仅开启时显示调整控件
 
     const [columnsStateMap, setColumnsStateMap] = useColumnState(ColumnState.ASSET);
 
@@ -78,10 +79,11 @@ const Asset = () => {
     };
 
     const columns = [
-        {
+        // 排序模式才显示：排序是低频操作，默认界面保持干净
+        ...(sortMode ? [{
             title: '排序',
             dataIndex: 'sortAction',
-            width: 60,
+            width: 64,
             fixed: 'left',
             render: (text, record) => (
                 <Space size={2}>
@@ -93,7 +95,7 @@ const Asset = () => {
                             onClick={() => handleAssetMove(record, 'down')}/>
                 </Space>
             ),
-        },
+        }] : []),
         {
             dataIndex: 'index',
             valueType: 'indexBorder',
@@ -524,7 +526,16 @@ const Asset = () => {
                                 onClick={connTestInBatch}>
                             连通性测试
                         </Button>
-                    </Show>
+                    </Show>,
+                    <Button key="sort"
+                            type={sortMode ? 'primary' : 'default'}
+                            ghost={sortMode}
+                            icon={<SortAscendingOutlined/>}
+                            onClick={() => {
+                                setSortMode(!sortMode);
+                            }}>
+                        {sortMode ? '完成排序' : '排序'}
+                    </Button>
                 ];
             }}
         />
