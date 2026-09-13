@@ -4,7 +4,7 @@ import Info from "../Info";
 const MyInfo = () => {
 
     return (
-        <div style={{backgroundColor: "white"}}>
+        <div className="nt-white-wrap">
             <Info></Info>
         </div>
     );

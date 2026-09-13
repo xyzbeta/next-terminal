@@ -1,7 +1,20 @@
 .week-time {
-    min-width: 640px;
+    /* 原为 min-width: 640px。该组件渲染在 width=900 的弹窗里，窄屏下弹窗被
+       .ant-modal{max-width:calc(100vw-24px)} 压到约 351px，而网格仍坚持 640px
+       且外层没有任何滚动容器 —— 24 小时网格右半（12:00 之后）完全在屏幕外，
+       又因 viewport 禁用了页面缩放而**物理上无法选中**。
+       改为宽度 0：让内层表格按自身内容撑开，由 .week-time-scroll 负责横向滚动。 */
+    min-width: 0;
     position: relative;
     display: inline-block;
+}
+
+/* 横向滚动容器：仅移动端生效（桌面端 640px 以内本来就不需要滚动）。
+   -webkit-overflow-scrolling 让 iOS 上的横向滑动有惯性。 */
+.week-time-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .schedule {
@@ -55,7 +68,7 @@
 
 .week-time-table .week-time-body td.week-time-item {
     user-select: unset;
-    background-color: #f5f5f5;
+    background-color: var(--bg-track, #f5f5f5);
 }
 
 .week-time-table .week-time-body td.ui-selected {

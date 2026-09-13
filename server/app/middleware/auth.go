@@ -13,7 +13,10 @@ import (
 	"github.com/ucarion/urlpath"
 )
 
-var anonymousUrls = []string{"/login", "/static", "/favicon.ico", "/logo.svg", "/branding"}
+// 匿名可访问的路径前缀。PWA 资源（manifest / Service Worker / 图标）
+// 必须在登录前即可获取，否则未登录状态下无法安装应用或注册 SW。
+var anonymousUrls = []string{"/login", "/static", "/favicon.ico", "/logo.svg", "/branding",
+	"/manifest.json", "/sw.js", "/pwa-", "/apple-touch-icon.png", "/antd.dark.css"}
 
 var allowUrls = []urlpath.Path{
 	urlpath.New("/account/info"),
@@ -59,7 +62,10 @@ func Auth(next echo.HandlerFunc) echo.HandlerFunc {
 			return api.Fail(c, 401, "您的登录信息已失效，请重新登录后再试。")
 		}
 
-		authorization := v.(dto.Authorization)
+		authorization, ok := v.(dto.Authorization)
+		if !ok {
+			return api.Fail(c, 401, "您的登录信息已失效，请重新登录后再试。")
+		}
 
 		if strings.EqualFold(nt.LoginToken, authorization.Type) {
 			if authorization.Remember {

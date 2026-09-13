@@ -1,9 +1,10 @@
-import React, {useState} from 'react';
+import React, {useRef, useState} from 'react';
 import {Col, Descriptions, Progress, Row} from "antd";
 import {renderSize} from "../../utils/utils";
 import './Stats.css'
 import {useQuery} from "react-query";
 import sessionApi from "../../api/session";
+import {useIsMobile} from "../../hook/use-breakpoint";
 
 const defaultStats = {
     uptime: 0,
@@ -33,16 +34,26 @@ const defaultStats = {
 
 const Stats = ({sessionId, visible, queryInterval = 5000}) => {
 
+    const isMobile = useIsMobile();
+    // 移动端每行 2 列，桌面 4 列；集中一处便于调整
+    const descColumn = isMobile ? 2 : 4;
+
     let [stats, setStats] = useState(defaultStats);
     let [prevStats, setPrevStats] = useState({});
+    // onSuccess 是 react-query 持有的回调，用闭包里的 stats 做基线可能取到更早的快照
+    // （两次轮询在同一批渲染前到达时，第二次会拿第一次之前的基线算速率）。
+    // ref 始终指向最近一次写入的状态，与渲染时机无关。
+    const statsRef = useRef(defaultStats);
 
     useQuery(["stats", sessionId], () => sessionApi.stats(sessionId), {
         refetchInterval: queryInterval,
         enabled: visible,
         onSuccess: (data) => {
-            setPrevStats(stats);
+            setPrevStats(statsRef.current);
             // 合并默认值：API 失败返回空对象时面板显示零值而非白屏崩溃
-            setStats({...defaultStats, ...(data || {})});
+            const merged = {...defaultStats, ...(data || {})};
+            statsRef.current = merged;
+            setStats(merged);
         }
     });
 
@@ -58,14 +69,14 @@ const Stats = ({sessionId, visible, queryInterval = 5000}) => {
 
     return (
         <div>
-            <Descriptions title="系统信息" column={4}>
+            <Descriptions title="系统信息" column={descColumn}>
                 <Descriptions.Item label="主机名称">{stats.hostname}</Descriptions.Item>
                 <Descriptions.Item label="运行时长">{upDays}天</Descriptions.Item>
             </Descriptions>
 
             <Row justify="center" align="middle">
                 <Col>
-                    <Descriptions title="负载" column={4}>
+                    <Descriptions title="负载" column={descColumn}>
                         <Descriptions.Item label='Load1'>
                             <div className='description-content'>
                                 <Progress percent={stats.load1} steps={20} size={'small'}/>
@@ -86,7 +97,7 @@ const Stats = ({sessionId, visible, queryInterval = 5000}) => {
             </Row>
 
 
-            <Descriptions title="CPU" column={4}>
+            <Descriptions title="CPU" column={descColumn}>
                 <Descriptions.Item label="用户">
                     {stats.cpu['user'].toFixed(2)}%
                 </Descriptions.Item>
@@ -113,7 +124,7 @@ const Stats = ({sessionId, visible, queryInterval = 5000}) => {
                 </Descriptions.Item>
             </Descriptions>
 
-            <Descriptions title="内存" column={4}>
+            <Descriptions title="内存" column={descColumn}>
                 <Descriptions.Item label="物理内存大小">{renderSize(stats.memTotal)}</Descriptions.Item>
                 <Descriptions.Item label="剩余内存大小">{renderSize(stats.memFree)}</Descriptions.Item>
                 <Descriptions.Item label="可用内存大小">{renderSize(stats.memAvailable)}</Descriptions.Item>
@@ -135,7 +146,7 @@ const Stats = ({sessionId, visible, queryInterval = 5000}) => {
                 </Descriptions.Item>
             </Descriptions>
 
-            <Descriptions title="磁盘" column={4}>
+            <Descriptions title="磁盘" column={descColumn}>
                 {
                     fileSystems.map((item, index) => {
                         return (
@@ -162,7 +173,7 @@ const Stats = ({sessionId, visible, queryInterval = 5000}) => {
                 }
             </Descriptions>
 
-            <Descriptions title="网络" column={4}>
+            <Descriptions title="网络" column={descColumn}>
                 {
                     Object.keys(network).map((key, index) => {
                         let prevNetwork = prevStats.network;

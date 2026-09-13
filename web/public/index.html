@@ -1,31 +1,53 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="utf-8"/>
     <link rel="shortcut icon" href="%PUBLIC_URL%/favicon.ico"/>
+    <!-- maximum-scale/user-scalable：终端类应用禁用页面级双指缩放。
+         否则 pinch 缩放会缩放整页（字越来越小），放大时只是把 canvas 位图拉伸
+         （大片空白 + 字符模糊），且会与终端的自适应尺寸计算相互干扰。 -->
     <meta
             name="viewport"
-            content="width=device-width, initial-scale=1, shrink-to-fit=no"
+            content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, shrink-to-fit=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#000000"/>
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
-    <title></title>
+    <meta name="theme-color" content="#1b1b1b"/>
+    <meta name="color-scheme" content="light dark"/>
+    <!-- antd 暗色主题：media 属性由浏览器按系统主题自动启用/停用（跟随系统）。
+         手动「深色/浅色」时由 theme.js 动态改 media 属性。
+         注意 iOS Web Clip 里 prefers-color-scheme 的 **JS** 媒体查询不可靠，
+         但 CSS 媒体查询与 color-scheme 同源、可靠 —— 所以跟随系统交给浏览器层。 -->
+    <link id="nt-antd-dark-css" rel="stylesheet" href="./antd.dark.css" media="(prefers-color-scheme: dark)"/>
+
+    <!-- PWA：可添加到主屏 / 独立窗口运行 -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json"/>
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png"/>
+
+    <!-- iOS Safari：添加到主屏后以独立窗口全屏运行（不显示 Safari 地址栏/工具栏）。
+         注意 iOS 不要求 HTTPS 即可「添加到主屏幕」，因此纯 HTTP 部署下这是移动端
+         最接近原生 App 的入口；Android 的 PWA 安装则要求 HTTPS。 -->
+    <meta name="apple-mobile-web-app-capable" content="yes"/>
+    <meta name="mobile-web-app-capable" content="yes"/>
+    <!-- 状态栏样式必须是 default/black，不能用 black-translucent：
+         后者会让网页内容延伸到状态栏下方，导致页面顶部的面包屑、菜单与用户区
+         与系统的时间/信号/电量图标重叠。default 让内容自状态栏下方开始。 -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+    <meta name="apple-mobile-web-app-title" content="Next Terminal"/>
+
+    <title>Next Terminal</title>
 </head>
 <body>
 <noscript>You need to enable JavaScript to run this app.</noscript>
 <div id="root"></div>
-<!--
-  This HTML file is a template.
-  If you open it directly in the browser, you will see an empty page.
-
-  You can add webfonts, meta tags, or analytics to this file.
-  The build step will place the bundled scripts into the <body> tag.
-
-  To begin the development, run `npm start` or `yarn start`.
-  To create a production bundle, use `npm run build` or `yarn build`.
--->
+<script>
+    // Service Worker 仅在安全上下文（HTTPS 或 localhost）可用；
+    // 纯 HTTP 部署下此处静默跳过，不影响任何功能。
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+            navigator.serviceWorker.register('%PUBLIC_URL%/sw.js').catch(function () {
+                /* 注册失败（如非安全上下文）无需打扰用户 */
+            });
+        });
+    }
+</script>
 </body>
 </html>

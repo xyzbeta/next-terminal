@@ -1,0 +1,1518 @@
+/* 暗黑模式核心面适配（v1.4.51 重构：CSS 变量 + 浏览器媒体查询）。
+ *
+ * 触发条件（三态）：
+ *   · 跟随系统：@media (prefers-color-scheme: dark) 且未手动指定浅色
+ *     —— 与 <meta name="color-scheme"> 同源的浏览器信号，iOS Web Clip 可靠；
+ *   · 手动深色：:root[data-theme="dark"]（浅色系统下也强制生效）；
+ *   · 手动浅色：:root[data-theme="light"] 守卫（深色系统下也强制保持浅色）。
+ *
+ * 变量的**浅色默认值与原有硬编码逐像素一致**——浅色模式下观感零变化。
+ * antd 组件层由 index.html 的 <link media> 管理（见 theme.js 顶部说明）。
+ * 终端页不受影响（本来就是深色 #1b1b1b）。 */
+
+/* —— 变量定义 —— */
+:root {
+    --bg-body: #f0f2f5;
+    --bg-card: #ffffff;
+    --bg-header: #ffffff;
+    --bg-elevated: #fafafa;
+    --bg-track: #f0f0f0;
+    --border: #e8e8e8;
+    --border-card: #f5f5f5;
+    --border-soft: #f0f0f0;
+    --text-title: rgba(0, 0, 0, 0.88);
+    --text-main: rgba(0, 0, 0, 0.85);
+    --text-body: rgba(0, 0, 0, 0.65);
+    --text-value: rgba(0, 0, 0, 0.78);
+    --text-sub: rgba(0, 0, 0, 0.45);
+    --text-muted: #8c8c8c;
+    --text-faint: rgba(0, 0, 0, 0.3);
+    --text-form: #595959;
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+:root[data-theme="dark"] {
+    --bg-body: #141414;
+    --bg-card: #1f1f1f;
+    --bg-header: #1f1f1f;
+    --bg-elevated: #262626;
+    --bg-track: #303030;
+    --border: #303030;
+    --border-card: #303030;
+    --border-soft: #303030;
+    --text-title: rgba(255, 255, 255, 0.88);
+    --text-main: rgba(255, 255, 255, 0.85);
+    --text-body: rgba(255, 255, 255, 0.65);
+    --text-value: rgba(255, 255, 255, 0.78);
+    --text-sub: rgba(255, 255, 255, 0.45);
+    --text-muted: #8c8c8c;
+    --text-faint: rgba(255, 255, 255, 0.3);
+    --text-form: rgba(255, 255, 255, 0.65);
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg-body: #141414;
+        --bg-card: #1f1f1f;
+        --bg-header: #1f1f1f;
+        --bg-elevated: #262626;
+        --bg-track: #303030;
+        --border: #303030;
+        --border-card: #303030;
+        --border-soft: #303030;
+        --text-title: rgba(255, 255, 255, 0.88);
+        --text-main: rgba(255, 255, 255, 0.85);
+        --text-body: rgba(255, 255, 255, 0.65);
+        --text-value: rgba(255, 255, 255, 0.78);
+        --text-sub: rgba(255, 255, 255, 0.45);
+        --text-muted: #8c8c8c;
+        --text-faint: rgba(255, 255, 255, 0.3);
+        --text-form: rgba(255, 255, 255, 0.65);
+        --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+}
+
+/* —— 应用变量（选择器与浅色硬编码值一一对应） —— */
+
+/* html body（特异性 0,0,2）：@ant-design/pro-components 的 components.css 里也有
+   body{background-color: #fff}，且该 chunk 是运行时异步注入、永远晚于本文件 ——
+   同特异性下后加载者赢，必须提高特异性才能压住。 */
+html body {
+    background: var(--bg-body) !important;
+    color: var(--text-main) !important;
+}
+
+/* 顶栏 */
+.layout-header {
+    background: var(--bg-header) !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .08) !important;
+}
+
+.nt-mobile-title {
+    color: var(--text-main) !important;
+}
+
+/* 底部标签栏 */
+.nt-tabbar {
+    background: var(--bg-header) !important;
+    border-top: 1px solid var(--border) !important;
+}
+
+.nt-tabbar-item {
+    color: var(--text-muted) !important;
+}
+
+/* 移动端卡片列表 */
+.ml-searchbar {
+    background: var(--bg-card) !important;
+    border-bottom: 1px solid var(--border-soft) !important;
+}
+
+.ml-title {
+    color: var(--text-main) !important;
+}
+
+.ml-count {
+    color: var(--text-muted) !important;
+}
+
+.ml-card {
+    background: var(--bg-card) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+.ml-card-title {
+    color: var(--text-title) !important;
+}
+
+.ml-card-row {
+    color: var(--text-body) !important;
+}
+
+.ml-card-row .k {
+    color: var(--text-muted) !important;
+}
+
+.ml-card-row .v {
+    color: var(--text-value) !important;
+}
+
+.ml-card-actions {
+    border-top: 1px solid var(--border-card) !important;
+}
+
+.ml-filter-title {
+    color: var(--text-main) !important;
+}
+
+.ml-filter-label {
+    color: var(--text-form) !important;
+}
+
+/* 概览页卡片（md- 前缀） */
+.md-stat,
+.md-card {
+    background: var(--bg-card) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+.md-stat-label,
+.md-card-extra {
+    color: var(--text-sub) !important;
+}
+
+.md-stat-value,
+.md-card-title {
+    color: var(--text-main) !important;
+}
+
+.md-stat-note {
+    color: var(--text-faint) !important;
+}
+
+.md-trend-name,
+.md-trend-peak,
+.md-asset-name,
+.md-asset-value {
+    color: var(--text-body) !important;
+}
+
+.md-asset-track {
+    background: var(--bg-track) !important;
+}
+
+.md-recent-item,
+.md-shortcut {
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border-soft) !important;
+    color: var(--text-value) !important;
+}
+
+.md-recent-item:active,
+.md-shortcut:active {
+    background: var(--bg-track) !important;
+}
+
+.md-recent-name {
+    color: var(--text-value) !important;
+}
+
+/* 白底页面容器（设置/个人中心） */
+.page-container-white {
+    background: var(--bg-card) !important;
+}
+
+/* 错误提示条（暗色专用色，浅色不受影响） */
+.ml-error {
+    background: #fffbe6 !important;
+    border-color: #ffe58f !important;
+    color: #874d00 !important;
+}
+
+/* 桌面端补充（查询表单 / 详情页 / 页面头部容器） */
+.page-search {
+    background-color: var(--bg-card) !important;
+}
+
+.page-detail-info {
+    background-color: var(--bg-card) !important;
+}
+
+.kd-content,
+.kd-page-header,
+.site-page-header-ghost-wrapper {
+    background-color: var(--bg-card) !important;
+}
+
+/* 登录页：外层容器是内联样式 #fafafa（JSX style），!important 可压内联非重要声明 */
+.login-page {
+    background-color: var(--bg-body) !important;
+}
+
+.login-card {
+    background-color: var(--bg-card) !important;
+}
+/* ============================================================
+   antd 组件暗色覆盖
+
+   根因：antd.min.css 经 webpack 以 <style> 注入，DOM 序在 <link>
+   antd.dark.css 之后；同特异性下后者赢，导致 antd 组件在暗色
+   模式下仍为白底。此处用 !important + CSS 变量统一补齐。
+
+   浅色模式下变量值为浅色，观感零变化。
+   ============================================================ */
+
+/* —— 表格 —— */
+.ant-table {
+    background: var(--bg-card) !important;
+    color: var(--text-body) !important;
+}
+.ant-table-thead > tr > th {
+    background: var(--bg-elevated) !important;
+    border-bottom: 1px solid var(--border) !important;
+    color: var(--text-main) !important;
+}
+.ant-table-tbody > tr > td {
+    border-bottom: 1px solid var(--border-card) !important;
+    color: var(--text-body) !important;
+}
+.ant-table-tbody > tr.ant-table-row:hover > td,
+.ant-table-tbody > tr.ant-table-row-hover > td {
+    background: var(--bg-track) !important;
+}
+.ant-table-cell-fix-left,
+.ant-table-cell-fix-right {
+    background: var(--bg-card) !important;
+}
+
+/* —— 卡片 —— */
+.ant-card {
+    background: var(--bg-card) !important;
+    border-color: var(--border) !important;
+    color: var(--text-body) !important;
+}
+.ant-card-head {
+    border-bottom-color: var(--border) !important;
+    color: var(--text-main) !important;
+}
+.ant-card-meta-title {
+    color: var(--text-title) !important;
+}
+.ant-card-meta-description {
+    color: var(--text-sub) !important;
+}
+
+/* —— 弹窗（Modal）—— */
+.ant-modal-content,
+.ant-modal-header {
+    background: var(--bg-card) !important;
+}
+.ant-modal-title {
+    color: var(--text-main) !important;
+}
+.ant-modal-close-icon {
+    color: var(--text-muted) !important;
+}
+/* 移动端全屏弹窗底部操作栏（mobile.css 硬编码 background:#fff） */
+.ant-modal:not(.ant-modal-confirm) .ant-modal-footer {
+    background: var(--bg-card) !important;
+    border-top: 1px solid var(--border-soft) !important;
+}
+/* 确认框 */
+.ant-modal-confirm .ant-modal-body {
+    color: var(--text-body) !important;
+}
+.ant-modal-confirm-title {
+    color: var(--text-main) !important;
+}
+
+/* —— 抽屉（Drawer）——
+   排除 .nt-sider-drawer（移动端侧边导航）：
+   它需要固定 #001529（浅色）/ var(--bg-card)（暗色），不跟随全局 var(--bg-card)。
+   antd Drawer className 应用到 .ant-drawer 根节点，
+   用 .nt-sider-drawer .ant-drawer-content 覆盖（特异性 0,2,0 > 0,1,0）。 */
+.ant-drawer-content {
+    background: var(--bg-card) !important;
+}
+.nt-sider-drawer .ant-drawer-content,
+.nt-sider-drawer .ant-drawer-body {
+    background: #001529 !important;
+}
+/* 暗色模式下侧边导航 Drawer → var(--bg-card) */
+:root[data-theme="dark"] .nt-sider-drawer .ant-drawer-content,
+:root[data-theme="dark"] .nt-sider-drawer .ant-drawer-body {
+    background: var(--bg-card) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .nt-sider-drawer .ant-drawer-content,
+    :root:not([data-theme="light"]) .nt-sider-drawer .ant-drawer-body {
+        background: var(--bg-card) !important;
+    }
+}
+.ant-drawer-header {
+    background: var(--bg-card) !important;
+    border-bottom-color: var(--border) !important;
+}
+.ant-drawer-title {
+    color: var(--text-main) !important;
+}
+.ant-drawer-close-icon {
+    color: var(--text-muted) !important;
+}
+
+/* —— 表单控件 —— */
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-input-number-input,
+.ant-picker,
+.ant-select .ant-select-selector {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    color: var(--text-main) !important;
+}
+.ant-input::placeholder,
+.ant-input-number-input::placeholder,
+.ant-picker-input > input::placeholder {
+    color: var(--text-faint) !important;
+}
+.ant-select-selection-placeholder {
+    color: var(--text-faint) !important;
+}
+.ant-select-arrow {
+    color: var(--text-muted) !important;
+}
+.ant-input-affix-wrapper > .ant-input {
+    background: transparent !important;
+}
+
+/* —— 下拉面板 / 日期面板 —— */
+.ant-select-dropdown,
+.ant-picker-panel-container,
+.ant-picker-panel {
+    background: var(--bg-card) !important;
+}
+.ant-select-item {
+    color: var(--text-body) !important;
+}
+.ant-select-item-option-active,
+.ant-select-item-option-selected {
+    background: var(--bg-track) !important;
+    color: var(--text-main) !important;
+}
+.ant-picker-cell {
+    color: var(--text-sub) !important;
+}
+.ant-picker-cell-selected .ant-picker-cell-inner {
+    background: #1890ff !important;
+    color: #fff !important;
+}
+.ant-picker-cell-in-view {
+    color: var(--text-body) !important;
+}
+
+/* —— 标签页（Tabs）—— */
+.ant-tabs-tab {
+    color: var(--text-body) !important;
+}
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+    color: #1890ff !important;
+}
+.ant-tabs-nav::before {
+    border-bottom-color: var(--border) !important;
+}
+.ant-tabs-ink-bar {
+    background: #1890ff !important;
+}
+
+/* —— Segmented（概览页按周/月切换）—— */
+.ant-segmented {
+    background: var(--bg-elevated) !important;
+}
+.ant-segmented-item {
+    color: var(--text-body) !important;
+}
+.ant-segmented-item-selected {
+    background: var(--bg-card) !important;
+    color: var(--text-main) !important;
+}
+
+/* —— 分页 —— */
+.ant-pagination-item,
+.ant-pagination-prev .ant-pagination-item-link,
+.ant-pagination-next .ant-pagination-item-link {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+}
+.ant-pagination-item a {
+    color: var(--text-body) !important;
+}
+.ant-pagination-item-active {
+    border-color: #1890ff !important;
+}
+.ant-pagination-item-active a {
+    color: #1890ff !important;
+}
+.ant-pagination-disabled .ant-pagination-item-link {
+    background: transparent !important;
+    color: var(--text-faint) !important;
+}
+
+/* —— 空状态 / 加载 —— */
+.ant-empty-description {
+    color: var(--text-muted) !important;
+}
+.ant-spin-dot-item {
+    background-color: var(--text-muted) !important;
+}
+
+/* —— 面包屑 —— */
+.ant-breadcrumb-link,
+.ant-breadcrumb-separator {
+    color: var(--text-sub) !important;
+}
+.ant-breadcrumb > span:last-child .ant-breadcrumb-link {
+    color: var(--text-main) !important;
+}
+
+/* —— Collapse / Collapse Panel —— */
+.ant-collapse {
+    background: var(--bg-card) !important;
+    border-color: var(--border) !important;
+}
+.ant-collapse-header {
+    color: var(--text-main) !important;
+}
+.ant-collapse-content {
+    background: var(--bg-card) !important;
+    border-top-color: var(--border) !important;
+    color: var(--text-body) !important;
+}
+
+/* —— Tag —— */
+.ant-tag {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    color: var(--text-body) !important;
+}
+
+/* —— Tooltip —— */
+.ant-tooltip-inner {
+    background: var(--bg-elevated) !important;
+    color: var(--text-main) !important;
+}
+
+/* ============================================================
+   ProTable / ProComponents 暗色覆盖
+   ============================================================ */
+.ant-pro-card {
+    background: var(--bg-card) !important;
+    border-color: var(--border) !important;
+    color: var(--text-body) !important;
+}
+.ant-pro-table {
+    background: var(--bg-card) !important;
+}
+.ant-pro-table-list-toolbar {
+    background: var(--bg-card) !important;
+}
+.ant-pro-table-list-toolbar-title {
+    color: var(--text-main) !important;
+}
+.ant-pro-card-header {
+    color: var(--text-main) !important;
+}
+
+/* ============================================================
+   移动端 / 组件 CSS 缺失覆盖补齐
+   ============================================================ */
+
+/* 概览页：hint / 轴标签 / 峰值标签 —— 原值 rgba(0,0,0,.3)，暗色下不可见 */
+.md-hint,
+.md-trend-peak-label,
+.md-trend-axis-dates {
+    color: var(--text-faint) !important;
+}
+
+/* 概览页错误提示条（与 .ml-error 对齐，暖色在两种模式均可读） */
+.md-error {
+    background: #fffbe6 !important;
+    border-color: #ffe58f !important;
+    color: #874d00 !important;
+}
+
+/* 列表底部「没有更多了」—— 原 #bfbfbf 暗色下偏亮但可读，统一用变量 */
+.ml-end {
+    color: var(--text-faint) !important;
+}
+
+/* 底部标签栏触摸反馈 —— 原 rgba(0,0,0,.04) 暗色下不可见 */
+.nt-tabbar-item:active {
+    background: var(--bg-track) !important;
+}
+
+/* 文件管理右键菜单 ——原 #fff */
+.popup {
+    background-color: var(--bg-card) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45) !important;
+}
+.popup li:hover {
+    background-color: var(--bg-track) !important;
+}
+
+/* 会话列表未审查高亮 —— 原 #e6f7ff */
+.unreviewed {
+    background: rgba(24, 144, 255, 0.12) !important;
+}
+
+/* 会话命令代码块 —— 原 rgb(246,248,250) */
+.code {
+    background-color: var(--bg-elevated) !important;
+    color: var(--text-body) !important;
+}
+
+/* 文件预览代码区内联样式覆盖（Term.js 中 background:#fff / #f5f5f5） */
+.nt-code-preview {
+    background: var(--bg-card) !important;
+    color: var(--text-body) !important;
+}
+.nt-code-preview-gutter {
+    background: var(--bg-elevated) !important;
+    color: var(--text-sub) !important;
+    border-right: 1px solid var(--border) !important;
+}
+
+/* Landing 加载页 —— 来自 Landing.js 方案 B（覆盖内联样式时移除） */
+.nt-landing {
+    background: var(--bg-body) !important;
+    color: var(--text-main) !important;
+}
+
+/* Info 包装容器 —— 来自 MyInfo.js 方案 B（覆盖内联样式时移除） */
+.nt-white-wrap {
+    background: var(--bg-card) !important;
+}
+
+/* ============================================================
+   补充 antd 组件暗色覆盖（antd.dark.css 自身已覆盖大部分，
+   此处补充 antd.dark.css 未覆盖或被后续 CSS 覆盖的组件）
+   ============================================================ */
+
+/* —— Layout 布局 —— */
+.ant-layout {
+    background: var(--bg-body) !important;
+}
+.ant-layout-content {
+    background: var(--bg-body) !important;
+}
+
+
+/* —— Button（按钮）——
+   antd.min.css 的 .ant-btn 默认 background:#fff、border-color:#d9d9d9、color:rgba(0,0,0,.65)。
+   antd.dark.css 虽覆盖了大部分，但被 antd.min.css 同特异性后注入压住，
+   此处补齐。主按钮（primary）不受影响——蓝色底在两种模式下均可读。 */
+.ant-btn:not(.ant-btn-primary):not(.ant-btn-dangerous):not(.ant-btn-link):not(.ant-btn-text):not(.ant-btn-background-ghost) {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    color: var(--text-body) !important;
+}
+.ant-btn:not(.ant-btn-primary):not(.ant-btn-dangerous):not(.ant-btn-link):not(.ant-btn-text):not(.ant-btn-background-ghost):hover {
+    background: var(--bg-track) !important;
+    border-color: var(--text-muted) !important;
+    color: var(--text-main) !important;
+}
+/* text 类型按钮：透明底，只调文字色 */
+.ant-btn-text {
+    color: var(--text-body) !important;
+}
+.ant-btn-text:hover {
+    background: var(--bg-track) !important;
+    color: var(--text-main) !important;
+}
+/* link 类型按钮 */
+.ant-btn-link {
+    color: #1890ff !important;
+}
+/* danger 按钮的边框/文字在暗色下需要提亮 */
+.ant-btn-dangerous.ant-btn-default {
+    border-color: #ff4d4f !important;
+    color: #ff4d4f !important;
+}
+.ant-btn-dangerous.ant-btn-default:hover {
+    background: rgba(255,77,79,0.12) !important;
+}
+
+/* —— Footer（页脚）—— */
+.ant-layout-footer {
+    background: var(--bg-body) !important;
+    color: var(--text-sub) !important;
+}
+
+/* —— Form label / Select 选中值 等文字色 —— */
+.ant-form-item-label > label {
+    color: var(--text-body) !important;
+}
+.ant-select-selection-item {
+    color: var(--text-main) !important;
+}
+.ant-checkbox-label {
+    color: var(--text-body) !important;
+}
+.ant-radio-label {
+    color: var(--text-body) !important;
+}
+/* —— ProTable 工具栏文字 —— */
+.ant-pro-table-list-toolbar-left {
+    color: var(--text-main) !important;
+}
+/* —— PageHeader —— */
+.ant-page-header-heading-title {
+    color: var(--text-main) !important;
+}
+.ant-page-header-heading-sub-title {
+    color: var(--text-sub) !important;
+}
+/* —— Typography —— */
+.ant-typography {
+    color: var(--text-body) !important;
+}
+.ant-typography h1,
+.ant-typography h2,
+.ant-typography h3,
+.ant-typography h4 {
+    color: var(--text-title) !important;
+}
+/* —— Space/Text 继承 body 颜色兜底 —— */
+.ant-space {
+    color: var(--text-body) !important;
+}
+/* —— Table 内操作链接 —— */
+.ant-table-tbody td a {
+    color: #1890ff !important;
+}
+
+/* —— Statistic（统计数值）—— */
+.ant-statistic-title {
+    color: var(--text-sub) !important;
+}
+.ant-statistic-content {
+    color: var(--text-main) !important;
+}
+
+/* —— Descriptions（详情页描述列表）—— */
+.ant-descriptions {
+    background: var(--bg-card) !important;
+}
+.ant-descriptions-item-label {
+    color: var(--text-sub) !important;
+}
+.ant-descriptions-item-content {
+    color: var(--text-body) !important;
+}
+.ant-descriptions-view {
+    background: var(--bg-card) !important;
+}
+.ant-descriptions-row {
+    border-bottom-color: var(--border) !important;
+}
+
+/* —— Alert —— */
+.ant-alert {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+}
+.ant-alert-message {
+    color: var(--text-main) !important;
+}
+.ant-alert-description {
+    color: var(--text-body) !important;
+}
+
+/* —— Divider —— */
+.ant-divider {
+    border-color: var(--border) !important;
+}
+
+/* —— Skeleton —— */
+.ant-skeleton-content .ant-skeleton-title,
+.ant-skeleton-content .ant-skeleton-paragraph > li {
+    background: var(--bg-track) !important;
+}
+
+/* —— Radio / Checkbox —— */
+.ant-radio-button-wrapper {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    color: var(--text-body) !important;
+}
+.ant-radio-button-wrapper-checked {
+    background: #1890ff !important;
+    border-color: #1890ff !important;
+    color: #fff !important;
+}
+.ant-checkbox-wrapper {
+    color: var(--text-body) !important;
+}
+
+/* —— Switch —— */
+.ant-switch:not(.ant-switch-checked) {
+    background: var(--bg-track) !important;
+}
+
+/* —— Tree（菜单树）—— */
+.ant-tree {
+    background: var(--bg-card) !important;
+    color: var(--text-body) !important;
+}
+.ant-tree-node-content-wrapper:hover {
+    background: var(--bg-track) !important;
+}
+.ant-tree-node-selected {
+    background: var(--bg-track) !important;
+}
+
+/* —— List —— */
+.ant-list-item {
+    border-bottom-color: var(--border-card) !important;
+    color: var(--text-body) !important;
+}
+
+/* —— Empty —— */
+.ant-empty-img-simple-ellipse {
+    fill: var(--bg-elevated) !important;
+}
+
+/* —— Drawer body 背景（mobile.css 未用变量处）—— */
+.ant-drawer-body {
+    background: var(--bg-card) !important;
+    color: var(--text-body) !important;
+}
+
+
+/* —— Popover —— */
+.ant-popover-inner {
+    background: var(--bg-elevated) !important;
+}
+.ant-popover-title {
+    color: var(--text-main) !important;
+    border-bottom-color: var(--border) !important;
+}
+.ant-popover-inner-content {
+    color: var(--text-body) !important;
+}
+
+/* —— Dropdown 菜单 —— */
+.ant-dropdown-menu {
+    background: var(--bg-elevated) !important;
+}
+.ant-dropdown-menu-item {
+    color: var(--text-body) !important;
+}
+.ant-dropdown-menu-item:hover {
+    background: var(--bg-track) !important;
+}
+
+/* ============================================================
+   全局兜底：暗黑模式下所有 antd 组件的文字色与背景色。
+
+   核心策略：ant.min.css 经 webpack 以 <style> 注入、DOM 序晚于
+   antd.dark.css 的 <link>，同特异性下后者赢。逐个组件覆盖不可维护。
+   此处用 :root[data-theme="dark"] / @media(prefers-color-scheme:dark)
+   + !important 一次性兜底所有 antd 组件。
+   ============================================================ */
+
+/* —— 全局文字色（!important 压住 antd.min.css 的 rgba(0,0,0,...)）—— */
+:root[data-theme="dark"] [class*="ant-"] {
+    color: var(--text-body) !important;
+}
+:root[data-theme="dark"] .ant-card-head-title,
+:root[data-theme="dark"] .ant-modal-title,
+:root[data-theme="dark"] .ant-drawer-title,
+:root[data-theme="dark"] .ant-tabs-tab-active .ant-tabs-tab-btn,
+:root[data-theme="dark"] .ant-page-header-heading-title,
+:root[data-theme="dark"] .ant-statistic-content,
+:root[data-theme="dark"] .ant-table-thead th {
+    color: var(--text-main) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) [class*="ant-"] {
+        color: var(--text-body) !important;
+    }
+    :root:not([data-theme="light"]) .ant-card-head-title,
+    :root:not([data-theme="light"]) .ant-modal-title,
+    :root:not([data-theme="light"]) .ant-drawer-title,
+    :root:not([data-theme="light"]) .ant-tabs-tab-active .ant-tabs-tab-btn,
+    :root:not([data-theme="light"]) .ant-page-header-heading-title,
+    :root:not([data-theme="light"]) .ant-statistic-content,
+    :root:not([data-theme="light"]) .ant-table-thead th {
+        color: var(--text-main) !important;
+    }
+}
+
+/* —— 全局白色背景 → 暗色卡片底 —— */
+:root[data-theme="dark"] .ant-card,
+:root[data-theme="dark"] .ant-card-body,
+:root[data-theme="dark"] .ant-modal-body,
+:root[data-theme="dark"] .ant-modal-content,
+:root[data-theme="dark"] .ant-modal-header,
+:root[data-theme="dark"] .ant-modal-footer,
+:root[data-theme="dark"] .ant-drawer-body,
+:root[data-theme="dark"] .ant-drawer-content,
+:root[data-theme="dark"] .ant-drawer-header,
+:root[data-theme="dark"] .ant-table,
+:root[data-theme="dark"] .ant-table-container,
+:root[data-theme="dark"] .ant-table-thead > tr > th,
+:root[data-theme="dark"] .ant-input,
+:root[data-theme="dark"] .ant-input-affix-wrapper,
+:root[data-theme="dark"] .ant-input-number,
+:root[data-theme="dark"] .ant-select-selector,
+:root[data-theme="dark"] .ant-collapse,
+:root[data-theme="dark"] .ant-collapse-content,
+:root[data-theme="dark"] .ant-list-item,
+:root[data-theme="dark"] .ant-picker,
+:root[data-theme="dark"] .ant-empty-normal,
+:root[data-theme="dark"] .ant-pro-card,
+:root[data-theme="dark"] .ant-pro-card-body,
+:root[data-theme="dark"] .ant-pro-table-list-toolbar {
+    background: var(--bg-card) !important;
+    background-color: var(--bg-card) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-card,
+    :root:not([data-theme="light"]) .ant-card-body,
+    :root:not([data-theme="light"]) .ant-modal-body,
+    :root:not([data-theme="light"]) .ant-modal-content,
+    :root:not([data-theme="light"]) .ant-modal-header,
+    :root:not([data-theme="light"]) .ant-modal-footer,
+    :root:not([data-theme="light"]) .ant-drawer-body,
+    :root:not([data-theme="light"]) .ant-drawer-content,
+    :root:not([data-theme="light"]) .ant-drawer-header,
+    :root:not([data-theme="light"]) .ant-table,
+    :root:not([data-theme="light"]) .ant-table-container,
+    :root:not([data-theme="light"]) .ant-table-thead > tr > th,
+    :root:not([data-theme="light"]) .ant-input,
+    :root:not([data-theme="light"]) .ant-input-affix-wrapper,
+    :root:not([data-theme="light"]) .ant-input-number,
+    :root:not([data-theme="light"]) .ant-select-selector,
+    :root:not([data-theme="light"]) .ant-collapse,
+    :root:not([data-theme="light"]) .ant-collapse-content,
+    :root:not([data-theme="light"]) .ant-list-item,
+    :root:not([data-theme="light"]) .ant-picker,
+    :root:not([data-theme="light"]) .ant-empty-normal,
+    :root:not([data-theme="light"]) .ant-pro-card,
+    :root:not([data-theme="light"]) .ant-pro-card-body,
+    :root:not([data-theme="light"]) .ant-pro-table-list-toolbar {
+        background: var(--bg-card) !important;
+        background-color: var(--bg-card) !important;
+    }
+}
+
+/* —— 表格行 hover（全面覆盖所有 hover 变体）—— */
+:root[data-theme="dark"] .ant-table-tbody > tr:hover > td,
+:root[data-theme="dark"] .ant-table-tbody > tr.ant-table-row:hover > td,
+:root[data-theme="dark"] .ant-table-tbody > tr.ant-table-row-hover > td,
+:root[data-theme="dark"] .ant-table-tbody > tr.ant-table-cell-row-hover > td {
+    background: var(--bg-track) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-table-tbody > tr:hover > td,
+    :root:not([data-theme="light"]) .ant-table-tbody > tr.ant-table-row:hover > td,
+    :root:not([data-theme="light"]) .ant-table-tbody > tr.ant-table-row-hover > td,
+    :root:not([data-theme="light"]) .ant-table-tbody > tr.ant-table-cell-row-hover > td {
+        background: var(--bg-track) !important;
+    }
+}
+
+/* —— Sider / Menu 暗黑模式（浅色模式不受影响，保持 #001529）—— */
+:root[data-theme="dark"] .ant-layout-sider,
+:root[data-theme="dark"] .ant-menu-dark {
+    background: var(--bg-card) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-layout-sider,
+    :root:not([data-theme="light"]) .ant-menu-dark {
+        background: var(--bg-card) !important;
+    }
+}
+
+
+/* —— danger 按钮（删除等危险操作）暗色提亮 —— */
+:root[data-theme="dark"] .ant-btn-dangerous:not(.ant-btn-primary) {
+    background: var(--bg-elevated) !important;
+    border-color: #ff4d4f !important;
+    color: #ff7875 !important;
+}
+:root[data-theme="dark"] .ant-btn-dangerous:not(.ant-btn-primary):hover {
+    background: rgba(255,77,79,0.15) !important;
+    border-color: #ff4d4f !important;
+    color: #ffa39e !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-btn-dangerous:not(.ant-btn-primary) {
+        background: var(--bg-elevated) !important;
+        border-color: #ff4d4f !important;
+        color: #ff7875 !important;
+    }
+    :root:not([data-theme="light"]) .ant-btn-dangerous:not(.ant-btn-primary):hover {
+        background: rgba(255,77,79,0.15) !important;
+        border-color: #ff4d4f !important;
+        color: #ffa39e !important;
+    }
+}
+
+/* —— Popconfirm / Modal.confirm —— */
+:root[data-theme="dark"] .ant-modal-confirm .ant-modal-content,
+:root[data-theme="dark"] .ant-modal-confirm .ant-modal-body,
+:root[data-theme="dark"] .ant-modal-confirm .ant-modal-header {
+    background: var(--bg-card) !important;
+}
+:root[data-theme="dark"] .ant-popconfirm .ant-popover-inner {
+    background: var(--bg-elevated) !important;
+}
+:root[data-theme="dark"] .ant-popconfirm .ant-popover-message-title {
+    color: var(--text-main) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-modal-confirm .ant-modal-content,
+    :root:not([data-theme="light"]) .ant-modal-confirm .ant-modal-body,
+    :root:not([data-theme="light"]) .ant-modal-confirm .ant-modal-header {
+        background: var(--bg-card) !important;
+    }
+    :root:not([data-theme="light"]) .ant-popconfirm .ant-popover-inner {
+        background: var(--bg-elevated) !important;
+    }
+    :root:not([data-theme="light"]) .ant-popconfirm .ant-popover-message-title {
+        color: var(--text-main) !important;
+    }
+}
+
+/* —— ProTable 内嵌搜索表单兜底 —— */
+:root[data-theme="dark"] .ant-pro-table-search,
+:root[data-theme="dark"] .ant-pro-form {
+    background: var(--bg-card) !important;
+    color: var(--text-body) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-pro-table-search,
+    :root:not([data-theme="light"]) .ant-pro-form {
+        background: var(--bg-card) !important;
+        color: var(--text-body) !important;
+    }
+}
+
+/* —— 白底白字修复：antd.min.css 的 .ant-select-selection-item
+   在暗色下背景已变暗、但文字仍为 #fff（antd.dark.css 设的） → 反而不可见。
+   此处强制文字色为 --text-main。同时修复 .ant-input 给文字留色。—— */
+:root[data-theme="dark"] .ant-select-selection-item,
+:root[data-theme="dark"] .ant-select-selection-search-input {
+    color: var(--text-main) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-select-selection-item,
+    :root:not([data-theme="light"]) .ant-select-selection-search-input {
+        color: var(--text-main) !important;
+    }
+}
+
+/* —— 边框色全局兜底 —— */
+:root[data-theme="dark"] .ant-table-thead > tr > th,
+:root[data-theme="dark"] .ant-table-tbody > tr > td,
+:root[data-theme="dark"] .ant-card,
+:root[data-theme="dark"] .ant-modal-content,
+:root[data-theme="dark"] .ant-drawer-content,
+:root[data-theme="dark"] .ant-input,
+:root[data-theme="dark"] .ant-input-affix-wrapper,
+:root[data-theme="dark"] .ant-select-selector,
+:root[data-theme="dark"] .ant-collapse,
+:root[data-theme="dark"] .ant-divider {
+    border-color: var(--border) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-table-thead > tr > th,
+    :root:not([data-theme="light"]) .ant-table-tbody > tr > td,
+    :root:not([data-theme="light"]) .ant-card,
+    :root:not([data-theme="light"]) .ant-modal-content,
+    :root:not([data-theme="light"]) .ant-drawer-content,
+    :root:not([data-theme="light"]) .ant-input,
+    :root:not([data-theme="light"]) .ant-input-affix-wrapper,
+    :root:not([data-theme="light"]) .ant-select-selector,
+    :root:not([data-theme="light"]) .ant-collapse,
+    :root:not([data-theme="light"]) .ant-divider {
+        border-color: var(--border) !important;
+    }
+}
+
+/* ============================================================
+   暗黑模式：Sider / Menu / trigger / 滚动条 / checkbox / 选中行
+   ============================================================ */
+
+/* —— Sider 整体 —— */
+:root[data-theme="dark"] .ant-layout-sider,
+:root[data-theme="dark"] .ant-layout-sider-children {
+    background: var(--bg-card) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-layout-sider,
+    :root:not([data-theme="light"]) .ant-layout-sider-children {
+        background: var(--bg-card) !important;
+    }
+}
+
+/* —— Menu dark theme 完整覆盖 ——
+   antd Menu theme="dark" 默认色板：
+     主背景 #001529 → 改为 var(--bg-card) #1f1f1f
+     子菜单背景 #000c17 → 改为 var(--bg-elevated) #262626
+     选中项背景 #1890ff → 保持蓝色（可辨识）
+     hover 项背景 rgba(255,255,255,0.08) → 保持
+   文字色：antd dark menu 默认 rgba(255,255,255,0.65) → 可读，保持 */
+:root[data-theme="dark"] .ant-menu-dark,
+:root[data-theme="dark"] .ant-menu-dark .ant-menu-sub,
+:root[data-theme="dark"] .ant-menu-dark .ant-menu-submenu-popup {
+    background: var(--bg-card) !important;
+}
+:root[data-theme="dark"] .ant-menu-dark .ant-menu-submenu-title,
+:root[data-theme="dark"] .ant-menu-dark .ant-menu-item {
+    color: rgba(255, 255, 255, 0.65) !important;
+}
+:root[data-theme="dark"] .ant-menu-dark .ant-menu-submenu-active,
+:root[data-theme="dark"] .ant-menu-dark .ant-menu-submenu-selected {
+    color: rgba(255, 255, 255, 0.85) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-menu-dark,
+    :root:not([data-theme="light"]) .ant-menu-dark .ant-menu-sub,
+    :root:not([data-theme="light"]) .ant-menu-dark .ant-menu-submenu-popup {
+        background: var(--bg-card) !important;
+    }
+    :root:not([data-theme="light"]) .ant-menu-dark .ant-menu-submenu-title,
+    :root:not([data-theme="light"]) .ant-menu-dark .ant-menu-item {
+        color: rgba(255, 255, 255, 0.65) !important;
+    }
+    :root:not([data-theme="light"]) .ant-menu-dark .ant-menu-submenu-active,
+    :root:not([data-theme="light"]) .ant-menu-dark .ant-menu-submenu-selected {
+        color: rgba(255, 255, 255, 0.85) !important;
+    }
+}
+
+/* —— Sider 收起按钮（trigger）—— */
+:root[data-theme="dark"] .ant-layout-sider-trigger,
+:root[data-theme="dark"] .ant-layout-sider-zero-width-trigger {
+    background: var(--bg-elevated) !important;
+    color: var(--text-body) !important;
+}
+:root[data-theme="dark"] .ant-layout-sider-trigger:hover,
+:root[data-theme="dark"] .ant-layout-sider-zero-width-trigger:hover {
+    background: var(--bg-track) !important;
+    color: var(--text-main) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-layout-sider-trigger,
+    :root:not([data-theme="light"]) .ant-layout-sider-zero-width-trigger {
+        background: var(--bg-elevated) !important;
+        color: var(--text-body) !important;
+    }
+    :root:not([data-theme="light"]) .ant-layout-sider-trigger:hover,
+    :root:not([data-theme="light"]) .ant-layout-sider-zero-width-trigger:hover {
+        background: var(--bg-track) !important;
+        color: var(--text-main) !important;
+    }
+}
+
+/* —— Sider 滚动条 —— */
+:root[data-theme="dark"] .ant-layout-sider::-webkit-scrollbar {
+    width: 6px;
+}
+:root[data-theme="dark"] .ant-layout-sider::-webkit-scrollbar-track {
+    background: transparent;
+}
+:root[data-theme="dark"] .ant-layout-sider::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+}
+:root[data-theme="dark"] .ant-layout-sider::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-layout-sider::-webkit-scrollbar {
+        width: 6px;
+    }
+    :root:not([data-theme="light"]) .ant-layout-sider::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    :root:not([data-theme="light"]) .ant-layout-sider::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 3px;
+    }
+    :root:not([data-theme="light"]) .ant-layout-sider::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.25);
+    }
+}
+
+/* —— Checkbox 选中背景（antd.min.css 覆盖了 antd.dark.css）—— */
+:root[data-theme="dark"] .ant-checkbox-checked .ant-checkbox-inner,
+:root[data-theme="dark"] .ant-checkbox-indeterminate .ant-checkbox-inner::after {
+    background-color: #177ddc !important;
+    border-color: #177ddc !important;
+}
+:root[data-theme="dark"] .ant-checkbox-inner {
+    background-color: transparent !important;
+    border-color: #434343 !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-checkbox-checked .ant-checkbox-inner,
+    :root:not([data-theme="light"]) .ant-checkbox-indeterminate .ant-checkbox-inner::after {
+        background-color: #177ddc !important;
+        border-color: #177ddc !important;
+    }
+    :root:not([data-theme="light"]) .ant-checkbox-inner {
+        background-color: transparent !important;
+        border-color: #434343 !important;
+    }
+}
+
+/* —— 表格行选中（勾选行变白：antd.min.css #e6f7ff 压住了 antd.dark.css #111b26）—— */
+:root[data-theme="dark"] .ant-table-row-selected > td,
+:root[data-theme="dark"] .ant-table-row-selected:hover > td {
+    background: #111b26 !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-table-row-selected > td,
+    :root:not([data-theme="light"]) .ant-table-row-selected:hover > td {
+        background: #111b26 !important;
+    }
+}
+
+/* —— 按钮全局白底兜底（antd.min.css .ant-btn background:#fff）—— */
+:root[data-theme="dark"] .ant-btn:not(.ant-btn-primary):not(.ant-btn-dangerous):not(.ant-btn-background-ghost) {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    color: var(--text-body) !important;
+}
+:root[data-theme="dark"] .ant-btn:not(.ant-btn-primary):not(.ant-btn-dangerous):not(.ant-btn-background-ghost):hover {
+    background: var(--bg-track) !important;
+    border-color: var(--text-muted) !important;
+    color: var(--text-main) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-btn:not(.ant-btn-primary):not(.ant-btn-dangerous):not(.ant-btn-background-ghost) {
+        background: var(--bg-elevated) !important;
+        border-color: var(--border) !important;
+        color: var(--text-body) !important;
+    }
+    :root:not([data-theme="light"]) .ant-btn:not(.ant-btn-primary):not(.ant-btn-dangerous):not(.ant-btn-background-ghost):hover {
+        background: var(--bg-track) !important;
+        border-color: var(--text-muted) !important;
+        color: var(--text-main) !important;
+    }
+}
+
+/* —— 面包屑（确保手动暗黑模式也覆盖）—— */
+:root[data-theme="dark"] .ant-breadcrumb,
+:root[data-theme="dark"] .ant-breadcrumb-link,
+:root[data-theme="dark"] .ant-breadcrumb-separator {
+    color: var(--text-sub) !important;
+}
+:root[data-theme="dark"] .ant-breadcrumb > span:last-child .ant-breadcrumb-link,
+:root[data-theme="dark"] .ant-breadcrumb > li:last-child .ant-breadcrumb-link {
+    color: var(--text-main) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-breadcrumb,
+    :root:not([data-theme="light"]) .ant-breadcrumb-link,
+    :root:not([data-theme="light"]) .ant-breadcrumb-separator {
+        color: var(--text-sub) !important;
+    }
+    :root:not([data-theme="light"]) .ant-breadcrumb > span:last-child .ant-breadcrumb-link,
+    :root:not([data-theme="light"]) .ant-breadcrumb > li:last-child .ant-breadcrumb-link {
+        color: var(--text-main) !important;
+    }
+}
+
+/* —— 全局滚动条（所有 antd 容器的滚动条统一暗色）—— */
+:root[data-theme="dark"] ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-track {
+    background: transparent;
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+    :root:not([data-theme="light"]) ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    :root:not([data-theme="light"]) ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 3px;
+    }
+    :root:not([data-theme="light"]) ::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.25);
+    }
+}
+
+/* —— logo 区域文字（Sider 内）—— */
+:root[data-theme="dark"] .logo > h1 {
+    color: var(--text-main) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .logo > h1 {
+        color: var(--text-main) !important;
+    }
+}
+
+/* —— danger-disabled / link-disabled 文字色 —— */
+:root[data-theme="dark"] .danger-disabled,
+:root[data-theme="dark"] .link-disabled,
+:root[data-theme="dark"] .danger-disabled:hover,
+:root[data-theme="dark"] .link-disabled:hover {
+    color: var(--text-faint) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .danger-disabled,
+    :root:not([data-theme="light"]) .link-disabled,
+    :root:not([data-theme="light"]) .danger-disabled:hover,
+    :root:not([data-theme="light"]) .link-disabled:hover {
+        color: var(--text-faint) !important;
+    }
+}
+
+/* ============================================================
+   修复：禁用按钮白底白字 + 面包屑高特异性 + 侧边栏滚动条隐藏
+   ============================================================ */
+
+/* —— 禁用按钮（白底白字根因：antd.min.css [disabled] 背景 #f5f5f5，
+   全局 [class*=ant-] 文字色覆盖为白色 → 白底白字）—— */
+:root[data-theme="dark"] .ant-btn[disabled],
+:root[data-theme="dark"] .ant-btn[disabled]:hover,
+:root[data-theme="dark"] .ant-btn[disabled]:focus,
+:root[data-theme="dark"] .ant-btn[disabled]:active {
+    background: var(--bg-elevated) !important;
+    border-color: var(--border) !important;
+    color: var(--text-faint) !important;
+}
+:root[data-theme="dark"] .ant-btn-primary[disabled],
+:root[data-theme="dark"] .ant-btn-primary[disabled]:hover,
+:root[data-theme="dark"] .ant-btn-primary[disabled]:focus,
+:root[data-theme="dark"] .ant-btn-primary[disabled]:active {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: #434343 !important;
+    color: rgba(255, 255, 255, 0.3) !important;
+}
+:root[data-theme="dark"] .ant-btn-dangerous.ant-btn-primary[disabled],
+:root[data-theme="dark"] .ant-btn-dangerous.ant-btn-primary[disabled]:hover,
+:root[data-theme="dark"] .ant-btn-dangerous.ant-btn-primary[disabled]:focus,
+:root[data-theme="dark"] .ant-btn-dangerous.ant-btn-primary[disabled]:active {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: #434343 !important;
+    color: rgba(255, 255, 255, 0.3) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-btn[disabled],
+    :root:not([data-theme="light"]) .ant-btn[disabled]:hover,
+    :root:not([data-theme="light"]) .ant-btn[disabled]:focus,
+    :root:not([data-theme="light"]) .ant-btn[disabled]:active {
+        background: var(--bg-elevated) !important;
+        border-color: var(--border) !important;
+        color: var(--text-faint) !important;
+    }
+    :root:not([data-theme="light"]) .ant-btn-primary[disabled],
+    :root:not([data-theme="light"]) .ant-btn-primary[disabled]:hover,
+    :root:not([data-theme="light"]) .ant-btn-primary[disabled]:focus,
+    :root:not([data-theme="light"]) .ant-btn-primary[disabled]:active {
+        background: rgba(255, 255, 255, 0.08) !important;
+        border-color: #434343 !important;
+        color: rgba(255, 255, 255, 0.3) !important;
+    }
+    :root:not([data-theme="light"]) .ant-btn-dangerous.ant-btn-primary[disabled],
+    :root:not([data-theme="light"]) .ant-btn-dangerous.ant-btn-primary[disabled]:hover,
+    :root:not([data-theme="light"]) .ant-btn-dangerous.ant-btn-primary[disabled]:focus,
+    :root:not([data-theme="light"]) .ant-btn-dangerous.ant-btn-primary[disabled]:active {
+        background: rgba(255, 255, 255, 0.08) !important;
+        border-color: #434343 !important;
+        color: rgba(255, 255, 255, 0.3) !important;
+    }
+}
+
+/* —— 面包屑：提高特异性压住 antd.min.css —— */
+html body .ant-breadcrumb,
+html body .ant-breadcrumb-link,
+html body .ant-breadcrumb-separator {
+    color: var(--text-sub) !important;
+}
+html body .ant-breadcrumb > ol > li:last-child .ant-breadcrumb-link,
+html body .ant-breadcrumb > li:last-child .ant-breadcrumb-link,
+html body .ant-breadcrumb > span:last-child .ant-breadcrumb-link {
+    color: var(--text-main) !important;
+}
+html body .ant-breadcrumb a {
+    color: var(--text-sub) !important;
+}
+html body .ant-breadcrumb a:hover {
+    color: var(--text-main) !important;
+}
+
+/* —— 侧边栏滚动条隐藏（多子菜单时仍可滚动，但不显示滚动条）—— */
+.ant-layout-sider {
+    scrollbar-width: none; /* Firefox */
+}
+.ant-layout-sider::-webkit-scrollbar {
+    display: none;
+}
+
+/* —— UserLayout Header（普通用户页面顶栏，antd 默认 #001529）—— */
+:root[data-theme="dark"] .ant-layout-header {
+    background: var(--bg-header) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-layout-header {
+        background: var(--bg-header) !important;
+    }
+}
+
+/* —— ProTable 搜索表单区域 —— */
+:root[data-theme="dark"] .ant-pro-table-search,
+:root[data-theme="dark"] .ant-pro-form-query-filter,
+:root[data-theme="dark"] .ant-pro-table-search-form {
+    background: var(--bg-card) !important;
+    color: var(--text-body) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-pro-table-search,
+    :root:not([data-theme="light"]) .ant-pro-form-query-filter,
+    :root:not([data-theme="light"]) .ant-pro-table-search-form {
+        background: var(--bg-card) !important;
+        color: var(--text-body) !important;
+    }
+}
+
+/* ============================================================
+   会话列表暗黑模式适配
+
+   .danger 类（删除/断开链接）：App.css 中 #cf1322 在暗色下几乎不可见
+   .danger:hover：#ff4d4f 对比度不够
+   .danger-disabled/.link-disabled：已被上方规则覆盖为 --text-faint
+   .unreviewed 行：暗色下 rgba(24,144,255,0.12) 偏淡，提亮到 0.15
+   ============================================================ */
+
+/* —— .danger 链接文字色（表格内删除/断开操作）—— */
+:root[data-theme="dark"] .danger {
+    color: #ff7875 !important;
+}
+:root[data-theme="dark"] .danger:hover {
+    color: #ffa39e !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .danger {
+        color: #ff7875 !important;
+    }
+    :root:not([data-theme="light"]) .danger:hover {
+        color: #ffa39e !important;
+    }
+}
+
+/* —— 未审查行背景：暗色下提亮以保持区分度 —— */
+:root[data-theme="dark"] .unreviewed {
+    background: rgba(24, 144, 255, 0.15) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .unreviewed {
+        background: rgba(24, 144, 255, 0.15) !important;
+    }
+}
+
+/* —— 表格操作列 <a> 链接统一色（标记已读/标记未读等无 class 的链接）—— */
+:root[data-theme="dark"] .ant-table-tbody td a:not(.danger):not(.link-disabled):not(.danger-disabled) {
+    color: #1890ff !important;
+}
+:root[data-theme="dark"] .ant-table-tbody td a:not(.danger):not(.link-disabled):not(.danger-disabled):hover {
+    color: #40a9ff !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-table-tbody td a:not(.danger):not(.link-disabled):not(.danger-disabled) {
+        color: #1890ff !important;
+    }
+    :root:not([data-theme="light"]) .ant-table-tbody td a:not(.danger):not(.link-disabled):not(.danger-disabled):hover {
+        color: #40a9ff !important;
+    }
+}
+
+/* —— ProTable 查询表单折叠/展开按钮 —— */
+:root[data-theme="dark"] .ant-pro-table-search-collapsed-button,
+:root[data-theme="dark"] .ant-form-item-control-input-content > a {
+    color: #1890ff !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-pro-table-search-collapsed-button,
+    :root:not([data-theme="light"]) .ant-form-item-control-input-content > a {
+        color: #1890ff !important;
+    }
+}
+
+/* ============================================================
+   antd message 弹窗（message.success/error/info/warn/loading）
+
+   根因：antd.min.css .ant-message-notice-content { background:#fff }，
+   全局 [class*=ant-] 覆盖文字为白色 → 白底白字。
+   ============================================================ */
+:root[data-theme="dark"] .ant-message-notice-content {
+    background: var(--bg-elevated) !important;
+    color: var(--text-main) !important;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45) !important;
+}
+:root[data-theme="dark"] .ant-message-custom-content {
+    color: var(--text-main) !important;
+}
+:root[data-theme="dark"] .ant-message-success .anticon,
+:root[data-theme="dark"] .ant-message-notice .anticon-check-circle {
+    color: #52c41a !important;
+}
+:root[data-theme="dark"] .ant-message-error .anticon,
+:root[data-theme="dark"] .ant-message-notice .anticon-close-circle {
+    color: #ff4d4f !important;
+}
+:root[data-theme="dark"] .ant-message-warning .anticon,
+:root[data-theme="dark"] .ant-message-notice .anticon-exclamation-circle {
+    color: #faad14 !important;
+}
+:root[data-theme="dark"] .ant-message-info .anticon,
+:root[data-theme="dark"] .ant-message-notice .anticon-info-circle {
+    color: #1890ff !important;
+}
+:root[data-theme="dark"] .ant-message-loading .anticon,
+:root[data-theme="dark"] .ant-message-notice .anticon-loading {
+    color: var(--text-muted) !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ant-message-notice-content {
+        background: var(--bg-elevated) !important;
+        color: var(--text-main) !important;
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45) !important;
+    }
+    :root:not([data-theme="light"]) .ant-message-custom-content {
+        color: var(--text-main) !important;
+    }
+    :root:not([data-theme="light"]) .ant-message-success .anticon,
+    :root:not([data-theme="light"]) .ant-message-notice .anticon-check-circle {
+        color: #52c41a !important;
+    }
+    :root:not([data-theme="light"]) .ant-message-error .anticon,
+    :root:not([data-theme="light"]) .ant-message-notice .anticon-close-circle {
+        color: #ff4d4f !important;
+    }
+    :root:not([data-theme="light"]) .ant-message-warning .anticon,
+    :root:not([data-theme="light"]) .ant-message-notice .anticon-exclamation-circle {
+        color: #faad14 !important;
+    }
+    :root:not([data-theme="light"]) .ant-message-info .anticon,
+    :root:not([data-theme="light"]) .ant-message-notice .anticon-info-circle {
+        color: #1890ff !important;
+    }
+    :root:not([data-theme="light"]) .ant-message-loading .anticon,
+    :root:not([data-theme="light"]) .ant-message-notice .anticon-loading {
+        color: var(--text-muted) !important;
+    }
+}
+
+/* —— 未审查行：暗色下用暗灰底 + 左边框做区分，不用暗蓝 —— */
+:root[data-theme="dark"] .unreviewed {
+    background: rgba(255, 255, 255, 0.04) !important;
+    box-shadow: inset 3px 0 0 #faad14 !important;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .unreviewed {
+        background: rgba(255, 255, 255, 0.04) !important;
+        box-shadow: inset 3px 0 0 #faad14 !important;
+    }
+}
+

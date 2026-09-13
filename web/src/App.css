@@ -1,5 +1,5 @@
 @import '~antd/dist/antd.min.css';
-@import '~@ant-design/pro-components/dist/components.css';
+/* pro-components 样式已迁出主包，见 src/layout/pro-components.css 与 App.js 中的异步 import 说明 */
 
 .trigger {
     font-size: 18px;
@@ -170,11 +170,28 @@
 }
 
 .danger {
-    color: red;
+    /* antd red-7：纯 red 在白底对比度 4.0:1，低于 WCAG AA 正文 4.5:1 的要求 */
+    color: #cf1322;
 }
 
 .danger:hover {
-    color: red !important;
+    /* 原先此处为 color: red !important，把 hover 色钉死为同色，
+       鼠标悬停在「删除」上完全没有视觉变化，破坏了「可点」的暗示 */
+    color: #ff4d4f;
+}
+
+/* 失效的操作链接：<a> 不支持 disabled 属性，需要自行给视觉与语义。
+   配套用法：className 加 link-disabled / danger-disabled，
+   并在 onClick 内提前 return、同时设置 aria-disabled。 */
+.danger-disabled,
+.link-disabled {
+    color: rgba(0, 0, 0, 0.25);
+    cursor: not-allowed;
+}
+
+.danger-disabled:hover,
+.link-disabled:hover {
+    color: rgba(0, 0, 0, 0.25);
 }
 
 .xterm-viewport::-webkit-scrollbar {
@@ -194,22 +211,3 @@
     background-color: #bfbfbf;
     transition: 0s;
 }
-
-/*.ant-layout-sider::-webkit-scrollbar {*/
-/*    background-color: transparent;*/
-/*    !*background-color: red;*!*/
-/*    width: 10px;*/
-/*}*/
-
-/*.ant-layout-sider::-webkit-scrollbar-thumb {*/
-/*    background-color: inherit;*/
-/*    border-radius: 8px;*/
-/*    background-clip: content-box;*/
-/*    border: 2px solid transparent;*/
-/*}*/
-
-/*.ant-layout-sider[scroll]::-webkit-scrollbar-thumb,*/
-/*.ant-layout-sider::-webkit-scrollbar-thumb:hover {*/
-/*    background-color: #bfbfbf;*/
-/*    transition: 0s;*/
-/*}*/
