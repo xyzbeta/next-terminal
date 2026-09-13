@@ -3,13 +3,26 @@ import {Outlet, Route, Routes} from "react-router-dom";
 
 import './App.css';
 import './Arco.css';
+import './mobile.css';
+import './dark-theme.css';
+
+// FE-05：@ant-design/pro-components 全量样式（84KB）此前由 App.css 静态 @import 打进主包，
+// 主 CSS 因此达 608KB / gzip 78KB 且渲染阻塞——只访问登录页的用户也要下载整套 ProTable 样式。
+// 使用它的 29 个页面全部是下面的 React.lazy 路由，故改为运行时异步 import：
+// webpack 拆出独立 CSS chunk，不阻塞首屏（本模块在首屏渲染前求值，管理页真正挂载时早已就绪）。
+// 具体转发原因（sideEffects 会摇掉包内 dist/components.css）见 layout/pro-components.css。
+import('./layout/pro-components.css');
+
 import ManagerLayout from "./layout/ManagerLayout";
 import UserLayout from "./layout/UserLayout";
 
 import NoMatch from "./components/NoMatch";
-import Landing from "./components/Landing";
+import ErrorBoundary from "./components/ErrorBoundary";
 import NoPermission from "./components/NoPermission";
 import Redirect from "./components/Redirect";
+// 路由级 Suspense 的 fallback 带「挂起自愈」：chunk 请求被挂住时不能永远停在加载中，
+// 详见 RouteFallback.js 顶部说明
+import RouteFallback from "./components/RouteFallback";
 
 const GuacdMonitor = React.lazy(() => import("./components/session/GuacdMonitor"));
 const GuacdPlayback = React.lazy(() => import("./components/session/GuacdPlayback"));
@@ -20,7 +33,7 @@ const BatchCommand = React.lazy(() => import("./components/devops/BatchCommand")
 const LoginPolicyDetail = React.lazy(() => import("./components/security/LoginPolicyDetail"));
 const Login = React.lazy(() => import("./components/Login"));
 const Dashboard = React.lazy(() => import("./components/dashboard/Dashboard"));
-const Monitoring = React.lazy(() => import("./components/dashboard/Monitoring"));
+const Monitoring = React.lazy(() => import(/* webpackPrefetch: true */ "./components/dashboard/Monitoring"));
 
 const Asset = React.lazy(() => import("./components/asset/Asset"));
 const AssetDetail = React.lazy(() => import("./components/asset/AssetDetail"));
@@ -66,8 +79,12 @@ const App = () => {
             <Route path="/" element={<Redirect/>}/>
 
             <Route element={
-                <Suspense fallback={<Landing/>}>
-                    <Outlet/>
+                <Suspense fallback={<RouteFallback/>}>
+                    {/* 终端/监控/回放等全屏页面同样需要错误边界：
+                        没有它，任一渲染异常都会卸载整棵树变成白屏 */}
+                    <ErrorBoundary>
+                        <Outlet/>
+                    </ErrorBoundary>
                 </Suspense>
             }>
                 <Route path="/access" element={<Guacd/>}/>

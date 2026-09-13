@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {useSearchParams} from "react-router-dom";
 import {server} from "../../common/env";
 import {getToken} from "../../utils/utils";
@@ -7,12 +7,18 @@ import {PauseCircleOutlined, PlayCircleOutlined} from "@ant-design/icons";
 import {Button, Col, message, Row, Select, Slider} from "antd";
 import times from "../../utils/times";
 import {debounce} from "../../utils/fun";
+import BackButton from "../BackButton";
 
-let recording;
 const GuacdPlayback = () => {
 
     const [searchParams] = useSearchParams();
     const sessionId = searchParams.get('sessionId');
+
+    // 会话录制对象与倍速 setTimeout 链的句柄。
+    // 此前 recording 是模块级 let（多实例共享）、timer 是函数体内的 let（每次渲染重新声明绑定，
+    // clearTimeout 读到的是新绑定，倍速链停不下来）。改用 ref：跨渲染稳定且实例隔离。
+    const recordingRef = useRef(null);
+    const timerRef = useRef(null);
 
     let [playBtnIcon, setPlayBtnIcon] = useState(<PlayCircleOutlined/>);
     let [position, setPosition] = useState('00:00');
@@ -24,10 +30,15 @@ const GuacdPlayback = () => {
     let [waiting, setWaiting] = useState(true);
 
     useEffect(() => {
-        recording = init(sessionId);
+        recordingRef.current = init(sessionId);
+        const recording = recordingRef.current;
 
         let _resize = () => {
-            onWindowResize(recording);
+            // debounce 是尾沿触发且无 cancel，卸载后仍可能有一次挂起的调用；
+            // 此时 recordingRef 已被 cleanup 置空，必须判空（否则 onWindowResize 抛 TypeError）
+            if (recordingRef.current) {
+                onWindowResize(recordingRef.current);
+            }
         }
 
         let resize = debounce(_resize);
@@ -35,10 +46,20 @@ const GuacdPlayback = () => {
         window.addEventListener('resize', resize);
 
         return () => {
+            // 停掉倍速递增的 setTimeout 链，否则卸载后仍会继续 seek（此前完全没有清理）
+            if (timerRef.current) {
+                clearTimeout(timerRef.current);
+                timerRef.current = null;
+            }
             if (recording) {
                 recording.disconnect();
-                recording.getDisplay().getElement().innerHTML = '';
+                const displayEl = recording.getDisplay().getElement();
+                displayEl.innerHTML = '';
+                if (displayEl.parentElement) {
+                    displayEl.parentElement.onclick = null;
+                }
             }
+            recordingRef.current = null;
             window.removeEventListener('resize', resize);
         }
     }, [sessionId]);
@@ -124,14 +145,13 @@ const GuacdPlayback = () => {
         recording.getDisplay().scale(scale);
     };
 
-    let timer;
-
     const startSpeedUp = () => {
         stopSpeedUp();
+        const recording = recordingRef.current;
         if (speed === 1) {
             return;
         }
-        if (!recording.isPlaying()) {
+        if (!recording || !recording.isPlaying()) {
             return;
         }
         const add_time = 100;
@@ -143,17 +163,22 @@ const GuacdPlayback = () => {
             return;
         }
         recording.seek(current + add_time, () => {
-            timer = setTimeout(startSpeedUp, delay);
+            timerRef.current = setTimeout(startSpeedUp, delay);
         });
     }
 
     const stopSpeedUp = () => {
-        if (timer) {
-            clearTimeout(timer)
+        if (timerRef.current) {
+            clearTimeout(timerRef.current);
+            timerRef.current = null;
         }
     }
 
     const handlePlayPause = () => {
+        const recording = recordingRef.current;
+        if (!recording) {
+            return;
+        }
         if (percent === max) {
             // 重播
             setPercent(0);
@@ -175,69 +200,75 @@ const GuacdPlayback = () => {
 
     const handleProgressChange = (value) => {
         // Request seek
-        recording.seek(value, () => {
+        if (!recordingRef.current) {
+            return;
+        }
+        recordingRef.current.seek(value, () => {
         });
     }
 
     return (
-        <div style={{
-            width: '100vw',
-            height: '100vh',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: '#1b1b1b'
-        }}>
-            <div id="player">
-                <div id="display">
-                    <div className="notification-container">
-                        <div className="seek-notification">
+        <>
+            <BackButton to="/#/offline-session"/>
+            <div style={{
+                width: '100vw',
+                height: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#1b1b1b'
+            }}>
+                <div id="player">
+                    <div id="display">
+                        <div className="notification-container">
+                            <div className="seek-notification">
+                            </div>
                         </div>
                     </div>
+
+                    {waiting ?
+
+                        <div style={{color: 'white', fontWeight: 'bold', cursor: 'pointer'}} onClick={() => {
+                            setWaiting(false);
+                            handlePlayPause();
+                        }}>点击播放</div>
+                        :
+                        <Row justify="space-around" align="middle" style={{margin: 4}}
+                             gutter={[5, 5]}>
+                            <Col flex="none">
+                                <Button size='small' onClick={handlePlayPause} icon={playBtnIcon}/>
+                            </Col>
+                            <Col flex="auto">
+                                <Slider value={percent} max={max} tooltipVisible={false} onChange={handleProgressChange}/>
+                            </Col>
+                            <Col flex='none'>
+                                <Select size={'small'} defaultValue='1' value={speed} onChange={(value) => {
+                                    setSpeed(value);
+                                    if (value === 1) {
+                                        stopSpeedUp();
+                                    } else {
+                                        startSpeedUp();
+                                    }
+                                }}>
+                                    <Select.Option key="1" value={1.0}>1.0倍速</Select.Option>
+                                    <Select.Option key="1.25" value={1.25}>1.25倍速</Select.Option>
+                                    <Select.Option key="1.5" value={1.5}>1.5倍速</Select.Option>
+                                    <Select.Option key="1.75" value={1.75}>1.75倍速</Select.Option>
+                                    <Select.Option key="2.0" value={2.0}>2.0倍速</Select.Option>
+                                </Select>
+                            </Col>
+                            <Col flex='none'>
+                                <div style={{color: 'white'}}>
+                                    <b>{position}</b>/ <b>{duration}</b>
+                                </div>
+                            </Col>
+                        </Row>
+                    }
+
+
                 </div>
-
-                {waiting ?
-
-                    <div style={{color: 'white', fontWeight: 'bold', cursor: 'pointer'}} onClick={() => {
-                        setWaiting(false);
-                        handlePlayPause();
-                    }}>点击播放</div>
-                    :
-                    <Row justify="space-around" align="middle" style={{margin: 4}}
-                         gutter={[5, 5]}>
-                        <Col flex="none">
-                            <Button size='small' onClick={handlePlayPause} icon={playBtnIcon}/>
-                        </Col>
-                        <Col flex="auto">
-                            <Slider value={percent} max={max} tooltipVisible={false} onChange={handleProgressChange}/>
-                        </Col>
-                        <Col flex='none'>
-                            <Select size={'small'} defaultValue='1' value={speed} onChange={(value) => {
-                                setSpeed(value);
-                                if (value === 1) {
-                                    stopSpeedUp();
-                                } else {
-                                    startSpeedUp();
-                                }
-                            }}>
-                                <Select.Option key="1" value={1.0}>1.0倍速</Select.Option>
-                                <Select.Option key="1.25" value={1.25}>1.25倍速</Select.Option>
-                                <Select.Option key="1.5" value={1.5}>1.5倍速</Select.Option>
-                                <Select.Option key="1.75" value={1.75}>1.75倍速</Select.Option>
-                                <Select.Option key="2.0" value={2.0}>2.0倍速</Select.Option>
-                            </Select>
-                        </Col>
-                        <Col flex='none'>
-                            <div style={{color: 'white'}}>
-                                <b>{position}</b>/ <b>{duration}</b>
-                            </div>
-                        </Col>
-                    </Row>
-                }
-
-
             </div>
-        </div>
+        </>
     );
 };
 

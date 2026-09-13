@@ -39,6 +39,11 @@ class SessionApi extends Api {
         return result['code'] === 1;
     }
 
+    cleanupKeepAlive = async (sessionId) => {
+        let result = await request.post(`/${this.group}/${sessionId}/cleanup`);
+        return result['code'] === 1;
+    }
+
     stats = async (sessionId) => {
         let result = await request.get(`/${this.group}/${sessionId}/stats`);
         if (result['code'] !== 1) {
@@ -50,6 +55,23 @@ class SessionApi extends Api {
     resize = async (sessionId, width, height) => {
         let result = await request.post(`/sessions/${sessionId}/resize?width=${width}&height=${height}`);
         return result.code === 1;
+    }
+
+    // 审计标记：后端端点早已存在（/sessions/:id/reviewed 等），但前端一直没有入口，
+    // 导致「未审查」高亮只是一个用户无法处置的死信号。
+    markReviewed = async (id) => {
+        const result = await request.post(`/${this.group}/${id}/reviewed`);
+        return result['code'] === 1;
+    }
+
+    markUnreviewed = async (id) => {
+        const result = await request.post(`/${this.group}/${id}/unreviewed`);
+        return result['code'] === 1;
+    }
+
+    markAllReviewed = async () => {
+        const result = await request.post(`/${this.group}/reviewed`);
+        return result['code'] === 1;
     }
 }
 

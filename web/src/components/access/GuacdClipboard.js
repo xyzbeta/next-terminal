@@ -35,7 +35,7 @@ const GuacdClipboard = ({visible, clipboardText, handleOk, handleCancel}) => {
                 confirmLoading={confirmLoading}
                 onCancel={handleCancel}
             >
-                <Form form={form}>
+                <Form scrollToFirstError form={form}>
                     <Form.Item name='clipboard'>
                         <Input.TextArea rows={10}/>
                     </Form.Item>

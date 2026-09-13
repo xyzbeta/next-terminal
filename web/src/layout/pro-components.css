@@ -1,0 +1,15 @@
+/*
+ * FE-05：@ant-design/pro-components 全量样式（84KB，829 个 .ant-pro-* 选择器）
+ *
+ * 此前由 src/App.css 顶部的 @import 静态打入主包，使 main.css 达 608KB 且为渲染阻塞资源——
+ * 只访问登录页的用户也要下载整套 ProTable/ProLayout 样式。
+ *
+ * 用到 pro-components 的 29 个页面全部是 App.js 中的 React.lazy 路由，因此这里改为
+ * 由 App.js 以「运行时异步 import」引入：webpack 会把它拆成独立 CSS chunk，不阻塞首屏。
+ *
+ * 注意：必须经由本文件转发 @import，不能在 JS 里直接 import '.../dist/components.css'。
+ * 该包 package.json 声明 sideEffects: ["*.less"]，dist/components.css 不匹配 *.less，
+ * 会被 webpack 的 sideEffects 优化判定为无副作用而整个摇掉（ProTable 将完全失去样式）。
+ * 本文件属于应用自身源码（web/package.json 无 sideEffects 字段），不会被摇掉。
+ */
+@import '~@ant-design/pro-components/dist/components.css';

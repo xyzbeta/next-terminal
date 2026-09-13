@@ -8,6 +8,7 @@ import {wsServer} from "../../common/env";
 import Message from "../access/Message";
 import {useSearchParams} from "react-router-dom";
 import "xterm/css/xterm.css";
+import BackButton from "../BackButton";
 
 const TermMonitor = () => {
 
@@ -141,12 +142,15 @@ const TermMonitor = () => {
     }, [sessionId]);
 
     return (
-        <div id='terminal'
-             style={{
-                 width: box.width,
-                 height: box.height,
-                 backgroundColor: '#1b1b1b'
-             }}/>
+        <>
+            <BackButton to="/#/online-session"/>
+            <div id='terminal'
+                 style={{
+                     width: box.width,
+                     height: box.height,
+                     backgroundColor: '#1b1b1b'
+                 }}/>
+        </>
     );
 };
 

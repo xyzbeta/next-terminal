@@ -19,6 +19,8 @@ import Draggable from "react-draggable";
 import FileSystem from "../devops/FileSystem";
 import GuacdClipboard from "./GuacdClipboard";
 import {debounce} from "../../utils/fun";
+import {useIsMobile} from "../../hook/use-breakpoint";
+import BackButton from "../BackButton";
 import './Guacd.css';
 
 // HACK: fixedSize 原为模块级变量，带宽高参数打开过后无参打开会沿用旧值导致 resize 失效。
@@ -41,6 +43,7 @@ const Guacd = () => {
     let height = searchParams.get('height');
 
     const fixedSizeRef = React.useRef(false);
+    const isMobile = useIsMobile();
 
     if (width && height) {
         fixedSizeRef.current = true;
@@ -50,8 +53,14 @@ const Guacd = () => {
     }
 
     let [box, setBox] = useState({width, height});
-    let [guacd, setGuacd] = useState({});
+    // 连接建立后的重渲染触发器。注意：所有对 client/sink 的读取都必须走 guacdRef，
+    // 不要再读这个 state——它的值可能是上一轮渲染的。保留 state 是因为它承载
+    // 「连接就绪」这一时点的重渲染语义，删掉会改变渲染时序。
+    let [, setGuacd] = useState({});
     let [session, setSession] = useState({});
+    // guacd 的 ref 镜像：销毁路径需要读当前 client，但不能把 guacd 放进 effect 依赖，
+    // 否则每次 setGuacd({...}) 传入新对象引用都会触发 cleanup（详见下方两个 effect 的分工）
+    const guacdRef = useRef({});
 
     // 断线重连状态
     const sessionRef = useRef(null);           // 会话对象（闭包稳定引用）
@@ -137,9 +146,11 @@ const Guacd = () => {
         client.connect(paramStr);
         let display = client.getDisplay();
         display.onresize = function (width, height) {
+            // 宽高两个方向分别取比，再取较小者；原实现两处都除 getHeight()，
+            // 当窗口宽高比窄于远端画面时算出的比例偏大，画面右侧被裁切
             display.scale(Math.min(
                 window.innerHeight / display.getHeight(),
-                window.innerWidth / display.getHeight()
+                window.innerWidth / display.getWidth()
             ))
         }
 
@@ -170,28 +181,83 @@ const Guacd = () => {
             client.sendMouseState(mouseState);
         }
 
+        // 鼠标移动节流：用 rAF 合并同一帧内的多次移动，只发最新位置。
+        // 原实现每次 mousemove 都发一条 WebSocket 消息，快速拖动时每秒上百条，
+        // 消息在浏览器→Go→guacd→RDP 链路上排队，是操作"跟手感"变差的主因。
+        // 缓存坐标快照而非状态对象本身（guacamole 可能复用同一实例）。
+        let pendingMouse = null;
+        let mouseRafId = null;
         mouse.onmousemove = function (mouseState) {
             sinkFocus();
-            client.getDisplay().showCursor(false);
-            mouseState.x = mouseState.x / display.getScale();
-            mouseState.y = mouseState.y / display.getScale();
-            client.sendMouseState(mouseState);
+            pendingMouse = {
+                x: mouseState.x, y: mouseState.y,
+                left: mouseState.left, middle: mouseState.middle, right: mouseState.right,
+                up: mouseState.up, down: mouseState.down
+            };
+            if (mouseRafId !== null) {
+                return;
+            }
+            mouseRafId = requestAnimationFrame(() => {
+                mouseRafId = null;
+                // 组件已卸载/断开时丢弃待发的移动（rAF 可能在此之后才触发）
+                if (!pendingMouse || manualCloseRef.current) {
+                    return;
+                }
+                const snapshot = pendingMouse;
+                pendingMouse = null;
+                const scale = client.getDisplay().getScale();
+                client.getDisplay().showCursor(false);
+                client.sendMouseState(new Guacamole.Mouse.State({
+                    x: snapshot.x / scale,
+                    y: snapshot.y / scale,
+                    left: snapshot.left,
+                    middle: snapshot.middle,
+                    right: snapshot.right,
+                    up: snapshot.up,
+                    down: snapshot.down
+                }));
+            });
         };
 
         const touch = new Guacamole.Mouse.Touchpad(element); // or Guacamole.Touchscreen
 
-        touch.onmousedown = touch.onmousemove = touch.onmouseup = function (state) {
+        // 触摸同样节流（手指滑动时事件频率更高，手机上收益更明显）
+        let pendingTouch = null;
+        let touchRafId = null;
+        touch.onmousedown = touch.onmouseup = function (state) {
             client.sendMouseState(state);
+        };
+        touch.onmousemove = function (state) {
+            pendingTouch = {
+                x: state.x, y: state.y,
+                left: state.left, middle: state.middle, right: state.right,
+                up: state.up, down: state.down
+            };
+            if (touchRafId !== null) {
+                return;
+            }
+            touchRafId = requestAnimationFrame(() => {
+                touchRafId = null;
+                if (!pendingTouch || manualCloseRef.current) {
+                    return;
+                }
+                const s = pendingTouch;
+                pendingTouch = null;
+                client.sendMouseState(new Guacamole.Mouse.State(s));
+            });
         };
 
 
 
+        guacdRef.current = {client, sink};
         setGuacd({
             client,
             sink,
         });
     }
 
+    // 事件监听：依赖必须为空数组。
+    // 监听器的注册/注销与「连接生命周期」无关——只要组件挂载着就该监听窗口 resize。
     useEffect(() => {
         let resize = debounce(() => {
             onWindowResize();
@@ -201,6 +267,25 @@ const Guacd = () => {
         window.addEventListener('focus', handleWindowFocus);
 
         return () => {
+            window.removeEventListener('resize', resize);
+            window.removeEventListener('beforeunload', handleUnload);
+            window.removeEventListener('focus', handleWindowFocus);
+        };
+    }, []);
+
+    // 连接销毁：依赖必须是 [assetId]。
+    //
+    // 这里原本与上面的监听器写在同一个 effect 里、依赖 [guacd]，是个致命错配：
+    // setGuacd({client, sink}) 每次连接都会传入新的对象字面量，React 按 Object.is
+    // 比较必然判定「变了」，于是首次连接成功后立刻触发一次 cleanup，
+    // 把 manualCloseRef.current 置为 true——而唯一复位它的地方在 [assetId] 的
+    // effect 里，早于连接建立就已执行过。结果是「连上即标记主动关闭」，
+    // tryReconnect 的重连守卫永远为真，RDP/VNC 自动重连功能整体失效。
+    //
+    // 规则：含单向置位语义的 cleanup，其依赖只能是生命周期标识（assetId），
+    // 不能是每次连接都换引用的连接句柄。同项目 Term.js 的写法可作参照。
+    useEffect(() => {
+        return () => {
             // 标记主动关闭：退避定时器不再触发重连
             manualCloseRef.current = true;
             if (reconnectTimerRef.current) {
@@ -209,27 +294,29 @@ const Guacd = () => {
             }
             // 断开 Guacamole 隧道：原实现不 disconnect，Guacamole 内置自动重连会使
             // 后台隧道继续存活至服务端超时（参照 GuacdMonitor.js 的正确做法）
-            if (guacd.client) {
-                guacd.client.disconnect();
+            const current = guacdRef.current;
+            if (current && current.client) {
+                current.client.disconnect();
             }
-            window.removeEventListener('resize', resize);
-            window.removeEventListener('beforeunload', handleUnload);
-            window.removeEventListener('focus', handleWindowFocus);
         };
-    }, [guacd])
+    }, [assetId]);
 
+    // 注意：本函数由依赖 [] 的 resize 监听器调用，闭包捕获的是首次渲染的 guacd（空对象）。
+    // 必须读 ref，否则缩放处理器永远拿不到 client、窗口缩放后画面不再自适应。
     const onWindowResize = () => {
-        if (guacd.client && !fixedSizeRef.current) {
-            const display = guacd.client.getDisplay();
+        const current = guacdRef.current;
+        if (current && current.client && !fixedSizeRef.current) {
+            const display = current.client.getDisplay();
             let width = window.innerWidth;
             let height = window.innerHeight;
             setBox({width, height});
+            // 同上：分别按高、宽取比再取小者（原实现两次都除 getHeight()）
             let scale = Math.min(
                 height / display.getHeight(),
-                width / display.getHeight()
+                width / display.getWidth()
             );
             display.scale(scale);
-            guacd.client.sendSize(width, height);
+            current.client.sendSize(width, height);
         }
     }
 
@@ -240,24 +327,36 @@ const Guacd = () => {
     }
 
     const focus = () => {
-        if (guacd.sink) {
-            guacd.sink.focus();
+        if (guacdRef.current.sink) {
+            guacdRef.current.sink.focus();
         }
     }
 
-    const handleWindowFocus = (e) => {
-        if (navigator.clipboard) {
-            try {
-                navigator.clipboard.readText().then((text) => {
-                    sendClipboard({
-                        'data': text,
-                        'type': 'text/plain'
-                    });
-                })
-            } catch (e) {
-                console.error('复制剪贴板失败', e);
-            }
+    // 剪贴板同步：仅在「安全上下文 + 用户手势」下可用。
+    //
+    // 移动端的现实：iOS Safari 要求 readText() 由用户手势触发，且会弹出授权提示；
+    // 而本函数挂在 window 的 focus 事件上（不是手势链内），因此在手机上该 Promise
+    // 必然 reject。原实现只用 try/catch 包了同步调用，没有 .catch()——
+    // Promise 的拒绝不会被 try/catch 捕获，会在控制台留下未处理的 rejection。
+    // 这里补上 .catch，并把整个能力探测收进 Promise 链，桌面端行为不变。
+    const clipboardReadable = () =>
+        typeof navigator !== 'undefined' &&
+        !!navigator.clipboard &&
+        typeof navigator.clipboard.readText === 'function';
+
+    const handleWindowFocus = () => {
+        if (!clipboardReadable()) {
+            return;
         }
+        navigator.clipboard.readText()
+            .then((text) => {
+                if (text) {
+                    sendClipboard({'data': text, 'type': 'text/plain'});
+                }
+            })
+            .catch(() => {
+                // 手机端未授权/非手势触发属预期路径，静默即可，不打扰用户
+            });
     };
 
     const handleClipboardReceived = (stream, mimetype) => {
@@ -288,14 +387,14 @@ const Guacd = () => {
     };
 
     const sendClipboard = (data) => {
-        if (!guacd.client) {
+        if (!guacdRef.current.client) {
             return;
         }
         if (session['paste'] === '0') {
             message.warn('禁止粘贴');
             return
         }
-        const stream = guacd.client.createClipboardStream(data.type);
+        const stream = guacdRef.current.client.createClipboardStream(data.type);
         if (typeof data.data === 'string') {
             let writer = new Guacamole.StringWriter(stream);
             writer.sendText(data.data);
@@ -355,14 +454,16 @@ const Guacd = () => {
     };
 
     const sendCombinationKey = (keys) => {
-        if (!guacd.client) {
+        // 读 ref：本函数可能经 guacamole 客户端回调链被调用，闭包里的 guacd 可能过期
+        const current = guacdRef.current;
+        if (!current || !current.client) {
             return;
         }
         for (let i = 0; i < keys.length; i++) {
-            guacd.client.sendKeyEvent(1, keys[i]);
+            current.client.sendKeyEvent(1, keys[i]);
         }
         for (let j = 0; j < keys.length; j++) {
-            guacd.client.sendKeyEvent(0, keys[j]);
+            current.client.sendKeyEvent(0, keys[j]);
         }
         message.success('发送组合键成功');
     }
@@ -375,12 +476,17 @@ const Guacd = () => {
             content: msg,
             centered: true,
             okText: '重新连接',
-            cancelText: '关闭页面',
+            cancelText: '返回会话列表',
             onOk() {
                 window.location.reload();
             },
             onCancel() {
-                window.close();
+                // 原实现是 window.close()：它只对 window.open 打开的窗口有效，
+                // 而本页通常是同页跳转或直接输入 URL 进入，点击后**静默无反应**，
+                // 用户留在已断线的黑屏页；PWA 独立窗口下更是 100% 无效。
+                // 改为跳回会话列表（与 Term.js 的「断开连接并返回」保持一致）。
+                manualCloseRef.current = true;
+                window.location.href = '/#/online-session';
             },
         });
     }
@@ -407,9 +513,10 @@ const Guacd = () => {
             if (manualCloseRef.current || reconnectGivenUpRef.current) {
                 return;
             }
-            // 销毁旧 client（断开旧 ws），重建 tunnel+client 携带重连令牌挂接同一隧道
-            if (guacd.client) {
-                guacd.client.disconnect();
+            // 销毁旧 client（断开旧 ws），重建 tunnel+client 携带重连令牌挂接同一隧道。
+            // 读 ref：本回调经客户端状态回调链触发，闭包里的 guacd 可能是上一轮渲染的值
+            if (guacdRef.current && guacdRef.current.client) {
+                guacdRef.current.client.disconnect();
             }
             if (sessionRef.current && sessionRef.current['id']) {
                 renderDisplay(sessionRef.current['id'], protocol, width, height);
@@ -506,9 +613,16 @@ const Guacd = () => {
         if (fullScreened) {
             exitFull();
             setFullScreened(false);
-        } else {
-            requestFullScreen(document.documentElement);
+            focus();
+            return;
+        }
+        // 原实现无条件 setFullScreened(true)：iPhone Safari 对非媒体元素不支持全屏 API，
+        // 调用是空操作，但图标照样翻转 —— 用户以为进了全屏，其实什么都没发生。
+        // 改为以「是否真正发起」为准，未生效时给出可执行的替代建议。
+        if (requestFullScreen(document.documentElement)) {
             setFullScreened(true);
+        } else {
+            message.info('当前浏览器不支持网页全屏，可横屏使用，或用浏览器的「添加到主屏幕」获得全屏体验');
         }
         focus();
     }
@@ -534,6 +648,14 @@ const Guacd = () => {
 
     return (
         <div>
+            {/* 移动端返回入口。
+                PWA standalone（manifest display: standalone，iOS 添加到主屏）下
+                没有浏览器返回键，而本页是铺满全屏的远端桌面、没有任何导航栏——
+                连上 RDP 后想回会话列表，此前只能杀掉 App 重开。
+                本组件原先完全没有移动端分支（全文 isMobile 零命中）。
+                放在左上角是为了避开右上角那组悬浮按钮；返回本身不断开会话，
+                服务端在 ws 断开后按宽限期回收。 */}
+            {isMobile && <BackButton to="/#/online-session" text="返回"/>}
             <div className="container" style={{
                 width: box.width,
                 height: box.height,
