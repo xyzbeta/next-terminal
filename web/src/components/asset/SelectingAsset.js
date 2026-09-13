@@ -4,14 +4,13 @@ import {PROTOCOL_COLORS} from "../../common/constants";
 import {} from "../../utils/utils";
 import dayjs from "dayjs";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import assetApi from "../../api/asset";
 import strings from "../../utils/strings";
 import {useQuery} from "react-query";
 import tagApi from "../../api/tag";
 
 const {Title} = Typography;
-
-const actionRef = React.createRef();
 
 const SelectingAsset = ({
                             visible,
@@ -20,6 +19,9 @@ const SelectingAsset = ({
                             confirmLoading,
                             id,
                         }) => {
+    const actionRef = React.useRef(null);
+
+    const isMobile = useIsMobile();
 
     let [rows, setRows] = useState([]);
     const tagQuery = useQuery('getAllTag', tagApi.getAll);
@@ -181,6 +183,7 @@ const SelectingAsset = ({
                 </div>
 
                 <ProTable
+                    scroll={isMobile ? {x: 'max-content'} : undefined}
                     columns={columns}
                     actionRef={actionRef}
                     rowSelection={{
@@ -236,8 +239,10 @@ const SelectingAsset = ({
                         labelWidth: 'auto',
                     }}
                     pagination={{
-                        pageSize: 5,
-                    }}
+                        defaultPageSize: 5,
+                        pageSizeOptions: [5, 10, 20, 50],
+                        showSizeChanger: true,
+                        }}
                     dateFormatter="string"
                     headerTitle="资产列表"
                 />

@@ -1,8 +1,9 @@
 import React, {useState} from 'react';
 
-import {Badge, Button, Layout, Popconfirm, Tag, Tooltip} from "antd";
+import {Badge, Button, Layout, Popconfirm, Tag, Tooltip, message} from "antd";
 import accessGatewayApi from "../../api/access-gateway";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import AccessGatewayModal from "./AccessGatewayModal";
 import ColumnState, {useColumnState} from "../../hook/column-state";
 import Show from "../../dd/fi/show";
@@ -11,9 +12,9 @@ const {Content} = Layout;
 
 const api = accessGatewayApi;
 
-const actionRef = React.createRef();
-
 const AccessGateway = () => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
     let [visible, setVisible] = useState(false);
     let [confirmLoading, setConfirmLoading] = useState(false);
     let [selectedRowKey, setSelectedRowKey] = useState(undefined);
@@ -110,7 +111,11 @@ const AccessGateway = () => {
                         key={'confirm-delete'}
                         title="您确认要删除此行吗?"
                         onConfirm={async () => {
-                            await api.deleteById(record.id);
+                            const ok = await api.deleteById(record.id);
+                            if (!ok) {
+                                return;
+                            }
+                            message.success('删除成功');
                             actionRef.current.reload();
                         }}
                         okText="确认"
@@ -125,6 +130,7 @@ const AccessGateway = () => {
 
     return (<Content className="page-container">
         <ProTable
+            scroll={isMobile ? {x: 'max-content'} : undefined}
             columns={columns}
             actionRef={actionRef}
             columnsState={{

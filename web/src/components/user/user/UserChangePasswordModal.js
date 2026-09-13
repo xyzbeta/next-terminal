@@ -32,7 +32,7 @@ const UserChangePasswordModal = ({visible, handleOk, handleCancel, confirmLoadin
                 cancelText='取消'
             >
 
-                <Form form={form}>
+                <Form scrollToFirstError form={form}>
                     <Form.Item name='password' rules={[{required: true, message: '请输入新密码'}]}>
                         <Input prefix={<LockOutlined/>} placeholder="请输入新密码"/>
                     </Form.Item>

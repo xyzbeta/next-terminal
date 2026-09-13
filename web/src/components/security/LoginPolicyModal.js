@@ -8,8 +8,6 @@ const formItemLayout = {
     wrapperCol: {span: 18},
 };
 
-let wkRef = React.createRef();
-
 const LoginPolicyModal = ({
                               visible,
                               handleOk,
@@ -19,6 +17,8 @@ const LoginPolicyModal = ({
                               userId
                           }) => {
 
+    // 与 FE-09 同类：此前是模块级 let wkRef = React.createRef()，所有实例共享同一对象
+    const wkRef = React.useRef(null);
     const [form] = Form.useForm();
 
     useEffect(() => {
@@ -70,7 +70,7 @@ const LoginPolicyModal = ({
             cancelText='取消'
         >
 
-            <Form form={form} {...formItemLayout}>
+            <Form scrollToFirstError form={form} {...formItemLayout}>
                 <Form.Item name='id' noStyle>
                     <Input hidden={true}/>
                 </Form.Item>

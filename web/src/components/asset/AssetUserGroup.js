@@ -3,12 +3,13 @@ import {Button} from "antd";
 import authorisedApi from "../../api/authorised";
 import {Link} from "react-router-dom";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import AssetUserGroupBind from "./AssetUserGroupBind";
 import Show from "../../dd/fi/show";
 
-const actionRef = React.createRef();
-
 const AssetUserGroup = ({id, active}) => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
 
     let [visible, setVisible] = useState(false);
     let [confirmLoading, setConfirmLoading] = useState(false);
@@ -71,6 +72,7 @@ const AssetUserGroup = ({id, active}) => {
     return (
         <div>
             <ProTable
+                scroll={isMobile ? {x: 'max-content'} : undefined}
                 columns={columns}
                 actionRef={actionRef}
                 request={async (params = {}, sort, filter) => {

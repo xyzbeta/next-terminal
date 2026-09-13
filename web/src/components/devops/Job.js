@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import './Job.css'
 import {Button, Layout, message, Popconfirm, Switch, Tag, Tooltip} from "antd";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import jobApi from "../../api/job";
 import JobModal from "./JobModal";
 import dayjs from "dayjs";
@@ -12,11 +13,12 @@ import {hasMenu} from "../../service/permission";
 
 const {Content} = Layout;
 
-const actionRef = React.createRef();
 
 const api = jobApi;
 
 const Job = () => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
     let [visible, setVisible] = useState(false);
     let [confirmLoading, setConfirmLoading] = useState(false);
     let [selectedRowKey, setSelectedRowKey] = useState(undefined);
@@ -105,10 +107,18 @@ const Job = () => {
             key: 'option',
             render: (text, record, index, action) => [
                 <Show menu={'job-run'} key={'job-run'}>
+                    {/* <a> 不支持 disabled：原写法下执行中的任务可被反复点击，
+                        每次都会再发一遍执行请求。改为提前 return 阻断。 */}
                     <a
                         key="exec"
-                        disabled={execLoading[index]}
-                        onClick={() => handleExec(record['id'], index)}
+                        className={execLoading[index] ? 'link-disabled' : ''}
+                        aria-disabled={!!execLoading[index]}
+                        onClick={() => {
+                            if (execLoading[index]) {
+                                return;
+                            }
+                            handleExec(record['id'], index);
+                        }}
                     >
                         执行
                     </a>
@@ -137,7 +147,11 @@ const Job = () => {
                         key={'confirm-delete'}
                         title="您确认要删除此行吗?"
                         onConfirm={async () => {
-                            await api.deleteById(record.id);
+                            const ok = await api.deleteById(record.id);
+                            if (!ok) {
+                                return;
+                            }
+                            message.success('删除成功');
                             actionRef.current.reload();
                         }}
                         okText="确认"
@@ -178,6 +192,7 @@ const Job = () => {
             <Content className="page-container">
 
                 <ProTable
+                    scroll={isMobile ? {x: 'max-content'} : undefined}
                     columns={columns}
                     actionRef={actionRef}
                     columnsState={{

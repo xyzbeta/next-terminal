@@ -1,14 +1,15 @@
 import React, {useEffect, useState} from 'react';
 import {Button} from "antd";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../../hook/use-breakpoint";
 import authorisedApi from "../../../api/authorised";
 import UserAuthorised from "./UserAuthorised";
 import {Link} from "react-router-dom";
 import Show from "../../../dd/fi/show";
 
-const actionRef = React.createRef();
-
 const UserAsset = ({active, id, type}) => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
     let [visible, setVisible] = useState(false);
     let [confirmLoading, setConfirmLoading] = useState(false);
 
@@ -70,6 +71,7 @@ const UserAsset = ({active, id, type}) => {
     return (
         <div>
             <ProTable
+                scroll={isMobile ? {x: 'max-content'} : undefined}
                 columns={columns}
                 actionRef={actionRef}
                 request={async (params = {}, sort, filter) => {

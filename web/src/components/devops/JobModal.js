@@ -80,7 +80,7 @@ const JobModal = ({
             cancelText='取消'
         >
 
-            <Form form={form} {...formItemLayout}
+            <Form scrollToFirstError form={form} {...formItemLayout}
                   initialValues={
                       {
                           func: 'shell-job',

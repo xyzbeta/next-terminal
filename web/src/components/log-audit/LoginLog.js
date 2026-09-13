@@ -1,8 +1,9 @@
 import React, {useState} from 'react';
 
-import {Button, Layout, Modal, Popconfirm, Table, Tag, Tooltip} from "antd";
+import {Button, Layout, Modal, Popconfirm, Table, Tag, Tooltip, message} from "antd";
 import {formatDate, isEmpty} from "../../utils/utils";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import loginLogApi from "../../api/login-log";
 import ColumnState, {useColumnState} from "../../hook/column-state";
 import Show from "../../dd/fi/show";
@@ -10,9 +11,9 @@ import Show from "../../dd/fi/show";
 const api = loginLogApi;
 const {Content} = Layout;
 
-const actionRef = React.createRef();
-
 const LoginLog = () => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
 
     let [total, setTotal] = useState(0);
     let [selectedRowKeys, setSelectedRowKeys] = useState([]);
@@ -97,7 +98,11 @@ const LoginLog = () => {
                         key={'confirm-delete'}
                         title="您确认要删除此行吗?"
                         onConfirm={async () => {
-                            await api.deleteById(record.id);
+                            const ok = await api.deleteById(record.id);
+                            if (!ok) {
+                                return;
+                            }
+                            message.success('删除成功');
                             actionRef.current.reload();
                         }}
                         okText="确认"
@@ -114,6 +119,7 @@ const LoginLog = () => {
         <div>
             <Content className="page-container">
                 <ProTable
+                    scroll={isMobile ? {x: 'max-content'} : undefined}
                     columns={columns}
                     actionRef={actionRef}
                     columnsState={{
@@ -159,8 +165,10 @@ const LoginLog = () => {
                         labelWidth: 'auto',
                     }}
                     pagination={{
-                        pageSize: 10,
-                    }}
+                        defaultPageSize: 10,
+                        pageSizeOptions: [10, 20, 50, 100],
+                        showSizeChanger: true,
+                        }}
                     dateFormatter="string"
                     headerTitle="登录日志列表"
                     toolBarRender={() => [
@@ -176,7 +184,11 @@ const LoginLog = () => {
                                             okType: 'danger',
                                             cancelText: '取消',
                                             onOk: async () => {
-                                                await api.deleteById(selectedRowKeys.join(","));
+                                                const ok = await api.deleteById(selectedRowKeys.join(","));
+                                                if (!ok) {
+                                                    return;
+                                                }
+                                                message.success('删除成功');
                                                 actionRef.current.reload();
                                                 setSelectedRowKeys([]);
                                             }

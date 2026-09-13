@@ -108,7 +108,7 @@ const StorageModal = ({
             cancelText='取消'
         >
 
-            <Form form={form} {...formItemLayout}>
+            <Form scrollToFirstError form={form} {...formItemLayout}>
                 <Form.Item name='id' noStyle>
                     <Input hidden={true}/>
                 </Form.Item>

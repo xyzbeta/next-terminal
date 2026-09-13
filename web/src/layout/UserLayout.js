@@ -15,6 +15,8 @@ import accountApi from "../api/account";
 import LogoWithName from "../images/logo-with-name.png";
 import Landing from "../components/Landing";
 import {setTitle} from "../hook/title";
+import MobileTabBar from "./MobileTabBar";
+import {useIsMobile} from "../hook/use-breakpoint";
 
 const {Header, Content} = Layout;
 
@@ -28,6 +30,9 @@ const UserLayout = () => {
 
     const location = useLocation();
     const navigate = useNavigate();
+    const isMobile = useIsMobile();
+    // 普通用户的可见菜单（用于底部标签栏按权限择项）
+    const userMenus = (getCurrentUser() || {})['menus'] || [];
 
     let _current = location.pathname.split('/')[1];
 
@@ -129,7 +134,21 @@ const UserLayout = () => {
                     <Outlet/>
                 </Suspense>
             </Content>
-            <FooterComponent/>
+            {/* 移动端不渲染页脚（App 里没有页脚，且会与底部标签栏形成双重底栏） */}
+            {!isMobile && <FooterComponent/>}
+
+            {/* 普通用户在手机上同样需要应用级导航：
+                此前只有管理端（ManagerLayout）有底部标签栏，
+                而普通用户（手机上最典型的角色）落在 UserLayout，
+                拿到的仍是桌面式的顶部横向导航。 */}
+            {isMobile && (
+                <MobileTabBar
+                    variant="user"
+                    userMenus={userMenus}
+                    pathname={location.pathname}
+                    navigate={navigate}
+                />
+            )}
         </Layout>
     );
 }

@@ -208,6 +208,22 @@ class FileSystem extends Component {
             uploadEndCount++;
             return uploadEndCount;
         }
+        // iOS Safari 不支持 webkitdirectory（属性被静默忽略），此时 webkitRelativePath
+        // 为 undefined —— 原实现直接 .substring 会抛 TypeError，用户看到的是
+        // 「选完文件什么都没发生」。这里降级为按普通多文件上传到当前目录。
+        const first = files[0];
+        if (first && !first.webkitRelativePath) {
+            message.warning('当前浏览器不支持文件夹上传，将按普通文件上传到当前目录');
+            for (let i = 0; i < files.length; i++) {
+                this.uploadFile(files[i], this.state.currentDirectory, () => {
+                    if (increaseUploadEndCount() === files.length) {
+                        this.refresh();
+                    }
+                });
+            }
+            return;
+        }
+
         for (let i = 0; i < files.length; i++) {
             let relativePath = files[i]['webkitRelativePath'];
             let dir = relativePath.substring(0, relativePath.length - files[i].name.length);
@@ -217,6 +233,18 @@ class FileSystem extends Component {
                 }
             });
         }
+    }
+
+    // enterDirectory 进入目录（或返回上级）。单击与双击共用，
+    // 保证移动端与桌面端行为一致、且逻辑只有一份。
+    enterDirectory = (record) => {
+        if (record['path'] === '..') {
+            const currentDirectory = this.state.currentDirectory;
+            const parentDirectory = currentDirectory.substring(0, currentDirectory.lastIndexOf('/'));
+            this.loadFiles(parentDirectory);
+            return;
+        }
+        this.loadFiles(record['path']);
     }
 
     handleUploadFile = () => {
@@ -645,8 +673,11 @@ class FileSystem extends Component {
                                         onClick={() => {
                                             window.document.getElementById('file-upload').click();
                                         }} ghost/>
+                                {/* accept 显式声明：移动端无 accept 时直接进文件管理器，
+                                    想「拍一张发过去」必须自己去相册翻。声明 image/* 之外
+                                    仍保留任意文件类型（堡垒机上传的多是配置/日志/安装包） */}
                                 <input type="file" id="file-upload" style={{display: 'none'}}
-                                       onChange={this.handleUploadFile} multiple/>
+                                       accept="*/*" onChange={this.handleUploadFile} multiple/>
                             </Tooltip>
                         </div>
 
@@ -717,25 +748,38 @@ class FileSystem extends Component {
                       }}
                       onDrop={this.handleDragDrop}>
 
+                    {/* scroll 是 26 个 ProTable 都有、唯独本表漏掉的一项。
+                        本表渲染在 window.innerWidth*0.8 的 Drawer 里（终端页/接入页/
+                        存储页/我的文件 4 个入口），375px 屏下抽屉 300px、再减 Card
+                        padding 仅剩约 276px；而 5 列（名称/大小/修改日期/属性/操作）
+                        中光操作列就声明 210px —— 没有横向滚动时文件名被压成两三个字、
+                        4 个操作按钮互相压盖。 */}
                     <Table columns={columns}
                            rowSelection={rowSelection}
                            dataSource={this.state.files}
+                           scroll={{x: 'max-content'}}
                            size={'small'}
-                           pagination={{pageSize: 100, showSizeChanger: false}}
+                           pagination={{defaultPageSize: 100, pageSizeOptions: [50, 100, 200, 500], showSizeChanger: true}}
                            loading={this.state.loading}
 
                            onRow={record => {
                                return {
+                                   // 移动端没有双击习惯，且 Chrome Android 会把双击判为缩放：
+                                   // 此前手指点一下目录名什么都不发生，用户会判定「文件管理坏了」。
+                                   // 这里让「目录/链接」单击即进入（与双击等价），文件仍保持双击。
+                                   onClick: (e) => {
+                                       // 必须排除勾选框列：antd 的多选框点击会冒泡到行，
+                                       // 不加这个判断，勾选一个目录会顺带进入该目录。
+                                       if (e.target.closest && e.target.closest('.ant-table-selection-column')) {
+                                           return;
+                                       }
+                                       if (record['isDir'] || record['isLink']) {
+                                           this.enterDirectory(record);
+                                       }
+                                   },
                                    onDoubleClick: event => {
                                        if (record['isDir'] || record['isLink']) {
-                                           if (record['path'] === '..') {
-                                               // 获取当前目录的上级目录
-                                               let currentDirectory = this.state.currentDirectory;
-                                               let parentDirectory = currentDirectory.substring(0, currentDirectory.lastIndexOf('/'));
-                                               this.loadFiles(parentDirectory);
-                                           } else {
-                                               this.loadFiles(record['path']);
-                                           }
+                                           this.enterDirectory(record);
                                        } else {
 
                                        }
@@ -788,7 +832,7 @@ class FileSystem extends Component {
                                 })
                             }}
                         >
-                            <Form ref={this.mkdirFormRef} id={'mkdir-form'}>
+                            <Form scrollToFirstError ref={this.mkdirFormRef} id={'mkdir-form'}>
                                 <Form.Item name='dir' rules={[{required: true, message: '请输入文件夹名称'}]}>
                                     <Input autoComplete="off" placeholder="请输入文件夹名称"/>
                                 </Form.Item>
@@ -853,7 +897,7 @@ class FileSystem extends Component {
                                 })
                             }}
                         >
-                            <Form id={'rename-form'}
+                            <Form scrollToFirstError id={'rename-form'}
                                   ref={this.renameFormRef}
                                   initialValues={{newName: getFileName(this.state.currentFileKey)}}>
                                 <Form.Item name='newName' rules={[{required: true, message: '请输入新的名称'}]}>

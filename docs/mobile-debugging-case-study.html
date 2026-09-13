@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>移动端「软键盘露白」攻坚复盘</title>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#fff; --ink:#1f2937; --sub:#6b7280; --line:#e5e7eb;
+  --accent:#1d6fe0; --bad:#dc2626; --good:#16a34a; --warn:#d97706;
+  --mono:'SF Mono',Consolas,'Liberation Mono',monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.75 -apple-system,'PingFang SC','Microsoft YaHei',sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding:32px 16px 80px}
+h1{font-size:26px;margin:0 0 6px}
+h2{font-size:20px;margin:44px 0 14px;padding-left:10px;border-left:4px solid var(--accent)}
+h3{font-size:16px;margin:24px 0 8px}
+p{margin:8px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:12px 0;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.meta{color:var(--sub);font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin:10px 0;background:var(--card)}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#f0f4f9;font-weight:600}
+code{font-family:var(--mono);background:#eef1f5;padding:1px 6px;border-radius:4px;font-size:13px}
+pre{background:#1e2430;color:#d7e0ea;border-radius:10px;padding:14px 16px;overflow-x:auto;font-size:13px;line-height:1.6}
+.tag{display:inline-block;padding:1px 10px;border-radius:99px;font-size:12px;font-weight:600}
+.t-bad{background:#fee2e2;color:var(--bad)} .t-good{background:#dcfce7;color:var(--good)}
+.t-warn{background:#fef3c7;color:var(--warn)} .t-info{background:#dbeafe;color:var(--accent)}
+.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.flow .node{background:#eef1f5;border-radius:8px;padding:6px 12px;font-size:13px}
+.flow .arrow{color:var(--sub)}
+ul{margin:6px 0;padding-left:22px}
+li{margin:4px 0}
+@media(max-width:640px){.wrap{padding:20px 12px 60px}pre{font-size:12px}th,td{padding:6px 7px;font-size:12.5px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>移动端「软键盘露白」攻坚复盘</h1>
+<p class="meta">Next Terminal · 2026-09-12 · 案例档案：一个「修了 5 轮未根治」的真机 bug 如何通过调试数据闭环</p>
+
+<div class="card">
+<h3 style="margin-top:0">一句话结论</h3>
+<p>该 bug 消耗约二十轮对话的根本原因不是技术难度，而是<b>在无法本地复现的环境里靠猜测改代码</b>——5 轮修复中 3 轮方向错误、其中 1 轮是反向的。建立「真机 → 开发机」的实时遥测通道后，<b>2 轮闭环</b>。这个对比本身就是结论。</p>
+</div>
+
+<h2>一、问题与背景</h2>
+<div class="card">
+<p><b>现象</b>：iPhone 访问堡垒机 PWA，SSH 终端页呼出软键盘时出现白色留白；普通 shell 漏、TUI（Claude Code 类）不漏；后用户又报告双指缩放同样触发、且页面可上下滑动。</p>
+<p><b>环境特殊性</b>：iOS 软键盘的行为（视觉视口平移、动画中间态、`dvh` 不收缩）无法在桌面浏览器与 Playwright 中复现；生产为纯 HTTP（iOS 不注册 Service Worker，但 SW 在桌面环境又存在更新滞后）。</p>
+</div>
+
+<h2>二、完整时间线</h2>
+<table>
+<tr><th>轮次</th><th>依据</th><th>假设与改动</th><th>结果</th></tr>
+<tr><td>v1.4.35</td><td>无数据</td><td>猜「WebGL 画布未重绘」→ fit 后加 <code>term.refresh()</code>；同时把 init 的 fit 收敛到统一入口</td><td><span class="tag t-bad">无效</span> 且埋下 fit 未执行的新 bug（见第四节）</td></tr>
+<tr><td>v1.4.36</td><td>无数据</td><td>补 <code>visualViewport.scroll</code> 监听 + overscroll-behavior</td><td><span class="tag t-warn">半对</span> scroll 监听是必要的，但未触及真因</td></tr>
+<tr><td>v1.4.37</td><td>无数据</td><td>猜「fixed 退化成跟随滚动」→ 加 <code>window.scrollY</code> 补偿</td><td><span class="tag t-bad">反向</span> 位移被算两遍，露白从偶发变必然</td></tr>
+<tr><td>v1.4.38</td><td><b>用户三张真机截图</b>（带诊断浮层数值）</td><td>定位 <code>scrollY ≡ offsetTop</code>（同一位移的两种表达）→ 去掉 scrollY</td><td><span class="tag t-good">稳态修复</span> 但动画过程仍有问题</td></tr>
+<tr><td>v1.4.39</td><td>截图（稳态无白底）</td><td>禁双指缩放、offsetLeft 补偿；据单张截图误判「已闭环」</td><td><span class="tag t-warn">误判</span> 用户报「还是会出现」</td></tr>
+<tr><td>v1.4.41~42</td><td>—</td><td><b>建立遥测通道</b>：手机 → 生产同源转发 → 开发机接收器；诊断浮层实时上报视口事件时序</td><td>通道打通（经历：手机跨域 fetch 被拦 → 改同源转发）</td></tr>
+<tr><td>v1.4.43</td><td><b>107 条 vv-event 时序</b></td><td>定位真因：<b>120ms 防抖被动画期 ~17ms 间隔的连续事件流永久重置</b>，容器在弹出动画全程（~700ms）不更新；动画结束还残留 19px 错位。→ 容器对齐改 rAF 每帧执行，与重排解耦</td><td><span class="tag t-good">白底消除</span></td></tr>
+<tr><td>v1.4.44</td><td>用户反馈「快速小范围抖动」</td><td>rAF 相位差 → 改同步写；高度渐变 → 40px 阈值冻结</td><td><span class="tag t-good">可用状态</span>（用户确认，残留轻微）</td></tr>
+</table>
+
+<h2>三、真因（数据还原）</h2>
+<div class="card">
+<p>键盘弹出动画期间，iOS 以 <b>~17ms 间隔连续触发 scroll/resize 事件约 700ms</b>，<code>innerHeight</code> 从 812 连续收缩到 469、<code>visualViewport.offsetTop</code> 从 0 连续爬升到 343。原视口同步采用 120ms 防抖——</p>
+<pre>连续事件流 → 防抖计时器每次被重置 → applySize 全程不执行
+→ 容器停留在键盘弹出前的位置（整个动画期间露白）
+→ 动画结束后防抖终于触发，但读到的是触发时刻的旧值（残留 19px 错位）</pre>
+<p>修复原则：<b>「对齐」与「重排」解耦</b>——容器样式（top/height/left）每帧/同步跟随视口（轻量、无重排副作用）；body 高度锁定与 xterm fit（重操作）保留防抖，动画结束后一次执行。</p>
+</div>
+
+<h2>四、过程中揪出的另一个潜伏 bug</h2>
+<div class="card">
+<p><b>v1.4.35 埋下的「fit 从未执行」</b>：init 里把 <code>fitAddon.fit()</code> 收敛为统一入口 <code>fit()</code>，而 fit() 读的是 <b>state</b> fitAddon——init 中 <code>setFitAddon</code> 尚未执行，fit() 拿到 undefined 直接 return；随后的尺寸同步 effect 又因「尺寸值不再变化」不触发。结果 <b>xterm 一直停留在默认 80×24（画布 720×432）被 CSS 拉伸到整个容器</b>——影响所有终端的渲染质量，因无人检查渲染内容而潜伏 8 个版本。</p>
+<p>教训：<b>回归测试只验证「结构」不验证「渲染内容」，等于没有渲染回归。</b></p>
+</div>
+
+<h2>五、方法论沉淀（为什么反复失败）</h2>
+<div class="card">
+<ol style="margin:4px 0 0;padding-left:22px">
+<li><b>无数据时的猜测成本极高</b>：5 轮猜测 3 轮错、1 轮反向（把「有时露白」变成「必然露白」）。真机数据一到，一轮定位。</li>
+<li><b>单点截图 ≠ 时序数据</b>：截图只能看到稳态；问题发生在动画过程。遥测的事件时序（vv-event / vv-apply）才是证据链。</li>
+<li><b>版本验证是前提</b>：SW 更新滞后导致用户可能测的是旧版。诊断浮层的「构建标记」一行字省掉了一整轮无效验证。</li>
+<li><b>测试判定方式的陷阱</b>：xterm WebGL 渲染器没有 DOM 文本节点，用 <code>textContent</code> 判定渲染结果会得到假阴性（本次排查中一度被误导，误以为「渲染坏了」）。渲染判定要用像素采样。</li>
+<li><b>「先取证、后动代码」应成为不可复现环境的铁律</b>：诊断通道应该在第一轮就建，而不是第五轮。</li>
+</ol>
+</div>
+
+<h2>六、调试设施方案档案（本次已停用，供后续深度沟通）</h2>
+<div class="card">
+<h3 style="margin-top:0">架构</h3>
+<div class="flow">
+<span class="node">手机页面</span><span class="arrow">→</span><span class="node">生产 /api/telemetry<br>（同源 + 登录态）</span><span class="arrow">→</span><span class="node">开发机接收器 :9090<br>（Go，JSONL 落盘）</span>
+</div>
+<p class="meta">手机无法直连开发机（跨域 fetch 被手机网络拦截；浏览器导航却可通）——同源转发是必须的。接收器必须带请求日志（否则无法区分「手机没发」与「发了没到」）。</p>
+<h3>采集内容（两级）</h3>
+<table>
+<tr><th>级别</th><th>内容</th><th>开关</th></tr>
+<tr><td>错误类</td><td>window.error / unhandledrejection / console.error（含白屏前最后一刻的错误、断开瞬间现场）</td><td>始终开启</td></tr>
+<tr><td>事件类</td><td>每次视口事件的即时数值（vv-event）、防抖后写入容器的值与 rect（vv-apply）</td><td>诊断浮层开启时</td></tr>
+</table>
+<h3>安全边界</h3>
+<ul>
+<li>仅内网开发机可达；上报内容只有错误信息与视口数值，<b>无任何业务数据</b>（密码/资产/会话内容不采集）</li>
+<li>批量 500ms 合并、队列上限、失败退避、keepalive 保证重载前最后一批发出</li>
+<li>转发端点挂全局 Auth（需登录态）</li>
+</ul>
+<h3>能力边界</h3>
+<ul>
+<li><b>能分析</b>：前端 JS 侧一切「真机有、本地无」的现象——视口/键盘/缩放/滚动时序、白屏前错误、接口异常、机型差异、操作时序还原</li>
+<li><b>不能分析</b>：业务/后端问题（会话内容、协议错误、审计数据）、JS 进程彻底死亡后的行为</li>
+</ul>
+</div>
+
+<h2>七、后续深度沟通议题（建议清单）</h2>
+<div class="card">
+<ol style="margin:4px 0 0;padding-left:22px">
+<li><b>产品化定位</b>：临时排查工具 vs 常驻诊断能力？开关由谁控制（用户/管理员/版本开关）？</li>
+<li><b>数据生命周期</b>：采集内容分级、留存时长、脱敏规则（审计产品对遥测数据的合规要求）</li>
+<li><b>正式端点设计</b>：复用现有基础设施还是独立通道？性能与安全边界（批量、限流、鉴权）</li>
+<li><b>诊断入口形态</b>：隐藏式（如长按 logo）vs 显式按钮 vs 异常时自动出现</li>
+<li><b>与审计定位的契合</b>：遥测是否可演进为「会话质量数据」（延迟、断线率、渲染健康度）</li>
+</ol>
+</div>
+
+</div></body></html>

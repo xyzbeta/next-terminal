@@ -1,15 +1,16 @@
 import React, {useState} from 'react';
 import {Button, Drawer} from "antd";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import jobApi from "../../api/job";
-
-const actionRef = React.createRef();
 
 const JobLog = ({
                     visible,
                     handleCancel,
                     id,
                 }) => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
 
     let [loading, setLoading] = useState(false);
 
@@ -48,6 +49,7 @@ const JobLog = ({
             >
                 {visible ?
                     <ProTable
+                        scroll={isMobile ? {x: 'max-content'} : undefined}
                         columns={columns}
                         actionRef={actionRef}
                         request={async (params = {}, sort, filter) => {

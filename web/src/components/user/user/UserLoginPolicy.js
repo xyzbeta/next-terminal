@@ -1,11 +1,12 @@
 import React, {useEffect} from 'react';
 import {ProTable} from '@ant-design/pro-components';
+import {useIsMobile} from "../../../hook/use-breakpoint";
 import {Link} from "react-router-dom";
 import loginPolicyApi from "../../../api/login-policy";
 
-const actionRef = React.createRef();
-
 const UserLoginPolicy = ({active, userId}) => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
 
     useEffect(() => {
         if (active) {
@@ -71,6 +72,7 @@ const UserLoginPolicy = ({active, userId}) => {
     return (
         <div>
             <ProTable
+                scroll={isMobile ? {x: 'max-content'} : undefined}
                 columns={columns}
                 actionRef={actionRef}
                 request={async (params = {}, sort, filter) => {

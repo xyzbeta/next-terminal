@@ -61,7 +61,7 @@ const StrategyModal = ({visible, handleOk, handleCancel, confirmLoading, id}) =>
             cancelText='取消'
         >
 
-            <Form form={form} {...formItemLayout}>
+            <Form scrollToFirstError form={form} {...formItemLayout}>
                 <Form.Item name='id' noStyle>
                     <Input hidden={true}/>
                 </Form.Item>
@@ -70,32 +70,32 @@ const StrategyModal = ({visible, handleOk, handleCancel, confirmLoading, id}) =>
                     <Input autoComplete="off" placeholder="授权策略名称"/>
                 </Form.Item>
 
-                <Form.Item label="上传" name='upload' rules={[{required: true}]} valuePropName="checked">
+                <Form.Item label="上传" name='upload' rules={[{required: true, message: '请确认该项开关状态'}]} initialValue={false} valuePropName="checked">
                     <Switch checkedChildren="开启" unCheckedChildren="关闭"/>
                 </Form.Item>
 
-                <Form.Item label="下载" name='download' rules={[{required: true}]} valuePropName="checked">
+                <Form.Item label="下载" name='download' rules={[{required: true, message: '请确认该项开关状态'}]} initialValue={false} valuePropName="checked">
                     <Switch checkedChildren="开启" unCheckedChildren="关闭"/>
                 </Form.Item>
 
-                <Form.Item label="编辑" name='edit' rules={[{required: true}]} valuePropName="checked"
+                <Form.Item label="编辑" name='edit' rules={[{required: true, message: '请确认该项开关状态'}]} initialValue={false} valuePropName="checked"
                            tooltip={'编辑需要先开启下载'}>
                     <Switch checkedChildren="开启" unCheckedChildren="关闭"/>
                 </Form.Item>
 
-                <Form.Item label="删除" name='delete' rules={[{required: true}]} valuePropName="checked">
+                <Form.Item label="删除" name='delete' rules={[{required: true, message: '请确认该项开关状态'}]} initialValue={false} valuePropName="checked">
                     <Switch checkedChildren="开启" unCheckedChildren="关闭"/>
                 </Form.Item>
 
-                <Form.Item label="重命名" name='rename' rules={[{required: true}]} valuePropName="checked">
+                <Form.Item label="重命名" name='rename' rules={[{required: true, message: '请确认该项开关状态'}]} initialValue={false} valuePropName="checked">
                     <Switch checkedChildren="开启" unCheckedChildren="关闭"/>
                 </Form.Item>
 
-                <Form.Item label="复制" name='copy' rules={[{required: true}]} valuePropName="checked">
+                <Form.Item label="复制" name='copy' rules={[{required: true, message: '请确认该项开关状态'}]} initialValue={false} valuePropName="checked">
                     <Switch checkedChildren="开启" unCheckedChildren="关闭"/>
                 </Form.Item>
 
-                <Form.Item label="粘贴" name='paste' rules={[{required: true}]} valuePropName="checked">
+                <Form.Item label="粘贴" name='paste' rules={[{required: true, message: '请确认该项开关状态'}]} initialValue={false} valuePropName="checked">
                     <Switch checkedChildren="开启" unCheckedChildren="关闭"/>
                 </Form.Item>
             </Form>

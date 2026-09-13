@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
-import {Button, Drawer, Layout, Popconfirm, Tag} from "antd";
+import {Button, Drawer, Layout, message, Popconfirm, Tag} from "antd";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import storageApi from "../../api/storage";
 import StorageModal from "./StorageModal";
 import {renderSize} from "../../utils/utils";
@@ -12,9 +13,9 @@ const api = storageApi;
 
 const {Content} = Layout;
 
-const actionRef = React.createRef();
-
 const Storage = () => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
     let [visible, setVisible] = useState(false);
     let [confirmLoading, setConfirmLoading] = useState(false);
     let [selectedRowKey, setSelectedRowKey] = useState(undefined);
@@ -106,18 +107,27 @@ const Storage = () => {
                     </a>
                 </Show>,
                 <Show menu={'storage-del'} key={'storage-del'}>
-                    <Popconfirm
-                        key={'confirm-delete'}
-                        title="您确认要删除此行吗?"
-                        onConfirm={async () => {
-                            await api.deleteById(record.id);
-                            actionRef.current.reload();
-                        }}
-                        okText="确认"
-                        cancelText="取消"
-                    >
-                        <a key='delete' disabled={record['isDefault']} className='danger'>删除</a>
-                    </Popconfirm>
+                    {/* 同 Role.js：<a disabled> 无禁用效果，默认存储空间必须条件渲染 */}
+                    {record['isDefault'] ? (
+                        <a key='delete' className='danger-disabled' title='默认存储空间不可删除'>删除</a>
+                    ) : (
+                        <Popconfirm
+                            key={'confirm-delete'}
+                            title="您确认要删除此行吗?"
+                            onConfirm={async () => {
+                                const ok = await api.deleteById(record.id);
+                                if (!ok) {
+                                    return;
+                                }
+                                message.success('删除成功');
+                                actionRef.current.reload();
+                            }}
+                            okText="确认"
+                            cancelText="取消"
+                        >
+                            <a key='delete' className='danger'>删除</a>
+                        </Popconfirm>
+                    )}
                 </Show>,
             ],
         },
@@ -127,6 +137,7 @@ const Storage = () => {
         <div>
             <Content className="page-container">
                 <ProTable
+                    scroll={isMobile ? {x: 'max-content'} : undefined}
                     columns={columns}
                     actionRef={actionRef}
                     columnsState={{
@@ -161,8 +172,10 @@ const Storage = () => {
                         labelWidth: 'auto',
                     }}
                     pagination={{
-                        pageSize: 10,
-                    }}
+                        defaultPageSize: 10,
+                        pageSizeOptions: [10, 20, 50, 100],
+                        showSizeChanger: true,
+                        }}
                     dateFormatter="string"
                     headerTitle="磁盘空间列表"
                     toolBarRender={() => [

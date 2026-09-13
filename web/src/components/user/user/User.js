@@ -4,6 +4,7 @@ import {Button, Input, Layout, message, Modal, Popconfirm, Switch, Table} from "
 import UserModal from "./UserModal";
 import {Link, useNavigate} from "react-router-dom";
 import {ProTable, TableDropdown} from "@ant-design/pro-components";
+import {useIsMobile} from "../../../hook/use-breakpoint";
 import userApi from "../../../api/user";
 import arrays from "../../../utils/array";
 import {ExclamationCircleOutlined, LockTwoTone} from "@ant-design/icons";
@@ -16,9 +17,9 @@ const api = userApi;
 
 const {Content} = Layout;
 
-const actionRef = React.createRef();
-
 const User = () => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
     let [visible, setVisible] = useState(false);
     let [confirmLoading, setConfirmLoading] = useState(false);
     let [selectedRowKey, setSelectedRowKey] = useState(undefined);
@@ -104,7 +105,11 @@ const User = () => {
                         key={'confirm-delete'}
                         title="您确认要删除此行吗?"
                         onConfirm={async () => {
-                            await api.deleteById(record.id);
+                            const ok = await api.deleteById(record.id);
+                            if (!ok) {
+                                return;
+                            }
+                            message.success('删除成功');
                             actionRef.current.reload();
                         }}
                         okText="确认"
@@ -181,6 +186,7 @@ const User = () => {
 
     return (<Content className="page-container">
         <ProTable
+            scroll={isMobile ? {x: 'max-content'} : undefined}
             columns={columns}
             actionRef={actionRef}
             columnsState={{

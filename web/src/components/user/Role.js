@@ -1,8 +1,9 @@
 import React, {useState} from 'react';
 
-import {Button, Layout, Popconfirm} from "antd";
+import {Button, Layout, message, Popconfirm} from "antd";
 import {Link} from "react-router-dom";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import roleApi from "../../api/role";
 import RoleModal from "./RoleModal";
 import ColumnState, {useColumnState} from "../../hook/column-state";
@@ -12,9 +13,9 @@ import Show from "../../dd/fi/show";
 const api = roleApi;
 const {Content} = Layout;
 
-const actionRef = React.createRef();
-
 const Role = () => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
 
     let [visible, setVisible] = useState(false);
     let [confirmLoading, setConfirmLoading] = useState(false);
@@ -65,10 +66,16 @@ const Role = () => {
                 </Show>
                 ,
                 <Show menu={'role-edit'} key={'role-edit'}>
+                    {/* <a> 不支持 disabled（不产生任何禁用效果），需自行阻断点击 */}
                     <a
                         key="edit"
-                        disabled={!record['modifiable']}
+                        className={record['modifiable'] ? '' : 'link-disabled'}
+                        aria-disabled={!record['modifiable']}
+                        title={record['modifiable'] ? undefined : '内置角色不可修改'}
                         onClick={() => {
+                            if (!record['modifiable']) {
+                                return;
+                            }
                             setVisible(true);
                             setSelectedRowKey(record['id']);
                         }}
@@ -78,19 +85,30 @@ const Role = () => {
                 </Show>
                 ,
                 <Show menu={'role-del'} key={'role-del'}>
-                    <Popconfirm
-                        key={'confirm-delete'}
-                        title="您确认要删除此行吗?"
+                    {/* 注意不能用 <a disabled>：disabled 不是 <a> 的合法属性，
+                        不产生任何禁用效果——内置角色的删除链接会与可删的一模一样，
+                        点下去照常弹确认框、照常发请求。改为条件渲染。 */}
+                    {record['deletable'] ? (
+                        <Popconfirm
+                            key={'confirm-delete'}
+                            title="您确认要删除此行吗?"
 
-                        onConfirm={async () => {
-                            await api.deleteById(record.id);
-                            actionRef.current.reload();
-                        }}
-                        okText="确认"
-                        cancelText="取消"
-                    >
-                        <a key='delete' disabled={!record['deletable']} className='danger'>删除</a>
-                    </Popconfirm>
+                            onConfirm={async () => {
+                                const ok = await api.deleteById(record.id);
+                                if (!ok) {
+                                    return;
+                                }
+                                message.success('删除成功');
+                                actionRef.current.reload();
+                            }}
+                            okText="确认"
+                            cancelText="取消"
+                        >
+                            <a key='delete' className='danger'>删除</a>
+                        </Popconfirm>
+                    ) : (
+                        <a key='delete' className='danger-disabled' title='内置角色不可删除'>删除</a>
+                    )}
                 </Show>,
             ],
         },
@@ -99,6 +117,7 @@ const Role = () => {
     return (<Content className="page-container">
 
         <ProTable
+            scroll={isMobile ? {x: 'max-content'} : undefined}
             columns={columns}
             actionRef={actionRef}
             columnsState={{

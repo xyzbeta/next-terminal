@@ -22,13 +22,14 @@ const AssetUserGroupBind = ({id, visible, handleOk, handleCancel, confirmLoading
 
             let queryParam = {'key': 'userGroupId', 'assetId': id};
 
-            let items = await authorisedApi.GetSelected(queryParam);
+            // 三个请求互不依赖，并行发出：串行 await 会让弹窗内容等 3×RTT 才齐全
+            const [items, userGroups, strategies] = await Promise.all([
+                authorisedApi.GetSelected(queryParam),
+                userGroupApi.getAll(),
+                strategyApi.getAll(),
+            ]);
             setSelectedUserGroupIds(items);
-
-            let userGroups = await userGroupApi.getAll();
             setUserGroups(userGroups);
-
-            let strategies = await strategyApi.getAll();
             setStrategies(strategies);
         }
 
@@ -79,7 +80,7 @@ const AssetUserGroupBind = ({id, visible, handleOk, handleCancel, confirmLoading
             cancelText='取消'
         >
 
-            <Form form={form} {...formItemLayout} >
+            <Form scrollToFirstError form={form} {...formItemLayout} >
 
                 <Form.Item label="用户组" name='userGroupIds' rules={[{required: true, message: '请选择用户组'}]}>
                     <Select

@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
 import {Button, Layout, message, Popconfirm} from "antd";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import commandApi from "../../api/command";
 import CommandModal from "./CommandModal";
 import SelectingAsset from "./SelectingAsset";
@@ -10,9 +11,10 @@ import ChangeOwner from "./ChangeOwner";
 
 const {Content} = Layout;
 const api = commandApi;
-const actionRef = React.createRef();
 
 const Command = () => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
     let [assetVisible, setAssetVisible] = useState(false);
 
     let [visible, setVisible] = useState(false);
@@ -93,7 +95,11 @@ const Command = () => {
                         key={'confirm-delete'}
                         title="您确认要删除此行吗?"
                         onConfirm={async () => {
-                            await api.deleteById(record.id);
+                            const ok = await api.deleteById(record.id);
+                            if (!ok) {
+                                return;
+                            }
+                            message.success('删除成功');
                             actionRef.current.reload();
                         }}
                         okText="确认"
@@ -113,6 +119,7 @@ const Command = () => {
 
     return (<Content className="page-container">
         <ProTable
+            scroll={isMobile ? {x: 'max-content'} : undefined}
             columns={columns}
             actionRef={actionRef}
             columnsState={{

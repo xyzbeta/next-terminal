@@ -479,6 +479,15 @@ Windows需要对远程应用程序的名称使用特殊的符号。
                                         }}/>
                             </Form.Item>
 
+                            <Form.Item
+                                name="keep-alive"
+                                label="会话保持（断线任务不中断）"
+                                valuePropName="checked"
+                                extra="开启后通过 tmux 保持会话：手机断网/切应用后任务继续运行，重连后回到原会话。资产上需安装 tmux，未安装时自动降级为普通连接"
+                            >
+                                <Switch checkedChildren="是" unCheckedChildren="否"/>
+                            </Form.Item>
+
                             {
                                 socksProxyEnable ? <>
                                     <Form.Item label="代理地址" name='socks-proxy-host'
@@ -801,7 +810,7 @@ Windows需要对远程应用程序的名称使用特殊的符号。
             cancelText='取消'
         >
 
-            <Form form={form} {...formLayout}>
+            <Form scrollToFirstError form={form} {...formLayout}>
                 <Form.Item name='id' noStyle>
                     <Input hidden={true}/>
                 </Form.Item>

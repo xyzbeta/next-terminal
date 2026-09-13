@@ -84,7 +84,7 @@ const UserAuthorised = ({type, id, visible, handleOk, handleCancel, confirmLoadi
             cancelText='取消'
         >
 
-            <Form form={form} {...formItemLayout} >
+            <Form scrollToFirstError form={form} {...formItemLayout} >
 
                 <Form.Item label="资产" name='assetIds' rules={[{required: true, message: '请选择资产'}]}>
                     <Select

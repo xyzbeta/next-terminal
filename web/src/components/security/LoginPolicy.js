@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
-import {Button, Layout, Popconfirm} from "antd";
+import {Button, Layout, Popconfirm, message} from "antd";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import LoginPolicyModal from "./LoginPolicyModal";
 import {Link} from "react-router-dom";
 import loginPolicyApi from "../../api/login-policy";
@@ -11,9 +12,9 @@ import {hasMenu} from "../../service/permission";
 const api = loginPolicyApi;
 const {Content} = Layout;
 
-const actionRef = React.createRef();
-
 const LoginPolicy = () => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
 
     let [visible, setVisible] = useState(false);
     let [confirmLoading, setConfirmLoading] = useState(false);
@@ -79,7 +80,11 @@ const LoginPolicy = () => {
                         key={'confirm-delete'}
                         title="您确认要删除此行吗?"
                         onConfirm={async () => {
-                            await api.deleteById(record.id);
+                            const ok = await api.deleteById(record.id);
+                            if (!ok) {
+                                return;
+                            }
+                            message.success('删除成功');
                             actionRef.current.reload();
                         }}
                         okText="确认"
@@ -96,6 +101,7 @@ const LoginPolicy = () => {
         <div>
             <Content className="page-container">
                 <ProTable
+                    scroll={isMobile ? {x: 'max-content'} : undefined}
                     columns={columns}
                     actionRef={actionRef}
                     columnsState={{
@@ -130,8 +136,10 @@ const LoginPolicy = () => {
                         labelWidth: 'auto',
                     }}
                     pagination={{
-                        pageSize: 10,
-                    }}
+                        defaultPageSize: 10,
+                        pageSizeOptions: [10, 20, 50, 100],
+                        showSizeChanger: true,
+                        }}
                     dateFormatter="string"
                     headerTitle="用户登录策略"
                     toolBarRender={() => [

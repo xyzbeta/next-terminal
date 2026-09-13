@@ -21,13 +21,15 @@ const AssetUserBind = ({id, visible, handleOk, handleCancel, confirmLoading}) =>
 
             let queryParam = {'key': 'userId', 'assetId': id};
 
-            let items = await authorisedApi.GetSelected(queryParam);
+            // 三个请求互不依赖，并行发出：串行 await 会让弹窗内容等 3×RTT 才齐全
+            // （跨机房按 30ms RTT 计约 90ms 白屏）
+            const [items, users, strategies] = await Promise.all([
+                authorisedApi.GetSelected(queryParam),
+                userApi.getAll(),
+                strategyApi.getAll(),
+            ]);
             setSelectedUserIds(items);
-
-            let users = await userApi.getAll();
             setUsers(users);
-
-            let strategies = await strategyApi.getAll();
             setStrategies(strategies);
         }
 
@@ -78,7 +80,7 @@ const AssetUserBind = ({id, visible, handleOk, handleCancel, confirmLoading}) =>
             cancelText='取消'
         >
 
-            <Form form={form} {...formItemLayout} >
+            <Form scrollToFirstError form={form} {...formItemLayout} >
 
                 <Form.Item label="用户" name='userIds' rules={[{required: true, message: '请选择用户'}]}>
                     <Select

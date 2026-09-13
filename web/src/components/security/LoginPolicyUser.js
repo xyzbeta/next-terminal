@@ -1,13 +1,14 @@
 import React, {useState} from 'react';
 import {Button, Drawer} from "antd";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import LoginPolicyBind from "./LoginPolicyBind";
 import loginPolicyApi from "../../api/login-policy";
 import Show from "../../dd/fi/show";
 
-const actionRef = React.createRef();
-
 const LoginPolicyUser = ({active, loginPolicyId}) => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
 
     let [visible, setVisible] = useState(false);
 
@@ -65,6 +66,7 @@ const LoginPolicyUser = ({active, loginPolicyId}) => {
     return (
         <div>
             <ProTable
+                scroll={isMobile ? {x: 'max-content'} : undefined}
                 columns={columns}
                 actionRef={actionRef}
                 request={async (params = {}, sort, filter) => {

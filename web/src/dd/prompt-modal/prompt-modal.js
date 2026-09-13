@@ -29,7 +29,7 @@ const PromptModal = ({title, open, onOk, onCancel, placeholder}) => {
 
     return (
         <Modal title={title} open={open} onOk={handleOk} onCancel={onCancel}>
-            <Form form={form}>
+            <Form scrollToFirstError form={form}>
                 <Form.Item name={'prompt'}>
                     <Input ref={ref}
                            onPressEnter={handleOk}

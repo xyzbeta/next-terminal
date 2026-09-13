@@ -272,6 +272,9 @@ const DragWeekTime = ({onRef, onChange}) => {
     }
 
     return (
+        // 横向滚动容器：窄屏下 24 小时网格（48 列）远超弹窗宽度，
+        // 必须可横向滑动，否则 12:00 之后的时段在手机上无法点到。
+        <div className='week-time-scroll'>
         <div className='week-time'>
             <div className={`schedule ${mouseDown ? 'schedule-notransi' : ''}`} style={scheduleStyle}/>
             <table className='week-time-table'>
@@ -327,6 +330,7 @@ const DragWeekTime = ({onRef, onChange}) => {
                 </tr>
                 </tbody>
             </table>
+        </div>
         </div>
     );
 };

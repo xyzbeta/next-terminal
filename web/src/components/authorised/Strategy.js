@@ -1,8 +1,9 @@
 import React, {useState} from 'react';
 
-import {Button, Layout, Popconfirm, Tag} from "antd";
+import {Button, Layout, Popconfirm, Tag, message} from "antd";
 import StrategyModal from "./StrategyModal";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import strategyApi from "../../api/strategy";
 import {Link} from "react-router-dom";
 import ColumnState, {useColumnState} from "../../hook/column-state";
@@ -11,7 +12,6 @@ import Show from "../../dd/fi/show";
 
 const api = strategyApi;
 const {Content} = Layout;
-const actionRef = React.createRef();
 
 const renderStatus = (text) => {
     if (text === true) {
@@ -22,6 +22,8 @@ const renderStatus = (text) => {
 }
 
 const Strategy = () => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
 
     let [visible, setVisible] = useState(false);
     let [confirmLoading, setConfirmLoading] = useState(false);
@@ -133,7 +135,11 @@ const Strategy = () => {
                         key={'confirm-delete'}
                         title="您确认要删除此行吗?"
                         onConfirm={async () => {
-                            await api.deleteById(record.id);
+                            const ok = await api.deleteById(record.id);
+                            if (!ok) {
+                                return;
+                            }
+                            message.success('删除成功');
                             actionRef.current.reload();
                         }}
                         okText="确认"
@@ -152,6 +158,7 @@ const Strategy = () => {
             <Content className="page-container">
 
                 <ProTable
+                    scroll={isMobile ? {x: 'max-content'} : undefined}
                     columns={columns}
                     actionRef={actionRef}
                     columnsState={{

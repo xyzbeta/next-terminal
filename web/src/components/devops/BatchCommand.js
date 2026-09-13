@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
 import {Badge, Divider, Layout, Space, Table, Tag, Tooltip, Typography} from "antd";
 import {ProTable} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import {PROTOCOL_COLORS} from "../../common/constants";
 import assetApi from "../../api/asset";
 import {isEmpty} from "../../utils/utils";
@@ -8,9 +9,10 @@ import dayjs from "dayjs";
 
 const {Title} = Typography;
 const {Content} = Layout;
-const actionRef = React.createRef();
 
 const BatchCommand = () => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
 
     let [rows, setRows] = useState([]);
 
@@ -137,6 +139,7 @@ const BatchCommand = () => {
         </div>
 
         <ProTable
+            scroll={isMobile ? {x: 'max-content'} : undefined}
             columns={columns}
             actionRef={actionRef}
             rowSelection={{
@@ -190,8 +193,10 @@ const BatchCommand = () => {
                 labelWidth: 'auto',
             }}
             pagination={{
-                pageSize: 5,
-            }}
+                defaultPageSize: 5,
+                pageSizeOptions: [5, 10, 20, 50],
+                showSizeChanger: true,
+                }}
             dateFormatter="string"
             headerTitle="资产列表"
         />

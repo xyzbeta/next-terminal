@@ -11,6 +11,10 @@ echo "build web..."
 cd web || exit
 yarn build || exit
 cp -r build ../server/resource/
+# 剔除 sourcemap：CRA 生产默认生成 source-map，本项目未设 GENERATE_SOURCEMAP，
+# 实测 81 个 .map 共约 30MB，会经 //go:embed 打进二进制并由 /static/* 匿名可下载，
+# 等于公开全部前端源码（含鉴权头组织方式）。web/build 内保留备份供本地调试。
+find ../server/resource/build -name '*.map' -delete
 echo "build web success"
 
 echo "build api..."

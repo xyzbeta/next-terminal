@@ -1,10 +1,9 @@
 import React from 'react';
 import {Space, Tooltip} from "antd";
-import {DualAxes, Liquid} from '@ant-design/plots';
+import {Area, DualAxes, Liquid} from '@ant-design/plots';
 import {ProCard, StatisticCard} from '@ant-design/pro-components';
 import dayjs from "dayjs";
 import {renderSize} from "../../utils/utils";
-import {Area} from "@ant-design/charts";
 import './Monitoring.css'
 import {renderWeekDay} from "../../utils/week";
 import {useQuery} from "react-query";
