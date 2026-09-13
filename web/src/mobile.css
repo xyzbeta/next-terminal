@@ -1,0 +1,896 @@
+/* Mobile adaptation.
+   All rules live inside this media query so desktop rendering is untouched.
+
+   断点集中说明（CSS 媒体查询无法使用 var()，只能硬编码 + 注释交叉引用）：
+   本文件、utils/window.js 的 MOBILE_BREAKPOINT / MOBILE_MEDIA_QUERY（JS 侧单一事实源，
+   hook/use-breakpoint.js 由其派生）、components/Login.css 的移动端媒体查询，
+   三处必须同步修改。
+
+   条件包含两段，缺一不可（完整理由见 utils/window.js 的 MOBILE_MEDIA_QUERY）：
+     · (max-width: 768px)                    —— 竖屏手机
+     · (pointer: coarse) and (max-height:500px) —— 横屏手机（iPhone 横屏宽 844~932px，
+       纯宽度断点会让整块适配失效）。平板横屏高 768、触屏笔记本主指针 fine，均不匹配。 */
+@media (max-width: 768px), (pointer: coarse) and (max-height: 500px) {
+    /* 安全区（iPhone 刘海/手势条）：public/index.html 已开启 viewport-fit=cover，
+       此处定义统一变量供贴底元素引用；env() 第二参数保证非全面屏设备回退为 0。
+       注意变量必须在媒体查询内定义，且引用处使用带兜底值的 var(--safe-bottom, 0px)。 */
+    :root {
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+        /* 横屏刘海屏左右也会被遮挡（iPhone 横屏时刘海在侧边），
+           贴边元素需自行让位；竖屏时这两个值通常为 0。 */
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-left: env(safe-area-inset-left, 0px);
+        --safe-right: env(safe-area-inset-right, 0px);
+    }
+
+    /* UserLayout: full-width containers instead of fixed 80% */
+    .nt-container {
+        width: auto;
+        margin: 12px;
+    }
+
+    .km-header {
+        width: 100%;
+        padding: 0 12px;
+    }
+
+    .km-header img {
+        width: 90px !important; /* override inline width={120} in UserLayout.js */
+    }
+
+    /* UserLayout 顶栏：logo + 我的资产/我的指令/个人中心 + 昵称下拉为一行，
+       antd Header 高度固定 64px，内容换行即溢出重叠。
+       方案：左组强制单行 + 内部横向滚动（结构不动），昵称固定在最右不被挤出视口。 */
+    .km-header > div:first-child {
+        display: flex;
+        align-items: center;
+        flex-wrap: nowrap;
+        min-width: 0; /* 关键：flex item 默认 min-width: auto，不设则该组按内容宽度撑破父容器 */
+        overflow-x: auto;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none; /* 顶栏不出现横向滚动条 */
+    }
+
+    .km-header > div:first-child::-webkit-scrollbar {
+        display: none;
+    }
+
+    .km-header > div:first-child > * {
+        flex: 0 0 auto; /* logo / 链接 / 按钮均不压缩 */
+        white-space: nowrap;
+    }
+
+    .km-header > div:first-child > a {
+        display: inline-flex; /* 去掉行内元素基线间隙，按钮与 logo 垂直居中 */
+        align-items: center;
+    }
+
+    .km-header-right {
+        flex: 0 0 auto; /* 昵称优先级最高，不被左侧按钮挤压 */
+        white-space: nowrap;
+    }
+
+    /* Page containers: tighter margins */
+    .page-container,
+    .page-container-white,
+    .page-detail-warp,
+    .page-card {
+        margin: 8px;
+    }
+
+    .page-container-white {
+        padding: 12px;
+    }
+
+    /* Header: hamburger button + breadcrumb in a row, prevent overflow */
+    .layout-header-left {
+        display: flex;
+        align-items: center;
+        margin-left: 12px;
+        overflow: hidden;
+    }
+
+    .layout-header-left > .ant-btn {
+        flex: 0 0 auto; /* 汉堡按钮不参与收缩，避免被面包屑挤扁 */
+    }
+
+    .layout-header-left > div {
+        flex: 1 1 0;
+        min-width: 0; /* 允许收缩到内容宽度以下，text-overflow 才会生效 */
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis; /* 面包屑超宽时以省略号截断，而非硬裁切 */
+    }
+
+    /* antd Breadcrumb 的 <ol> 是 flex + wrap：窄屏换行后第二行会被 header 裁掉且无提示。
+       改为单行，并让每个面包屑项自身省略，保证尾部出现 "…" */
+    .layout-header-left .ant-breadcrumb ol {
+        flex-wrap: nowrap;
+        overflow: hidden;
+    }
+
+    .layout-header-left .ant-breadcrumb li {
+        min-width: 0; /* 覆盖 flex item 的 min-width: auto，否则不收缩也不省略 */
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    .layout-header-right {
+        margin-right: 12px;
+        flex: 0 0 auto; /* 昵称不被面包屑挤压 */
+    }
+
+    /* Cap any fixed-width modal to the viewport (e.g. AssetModal width 700) */
+    .ant-modal {
+        max-width: calc(100vw - 24px);
+    }
+
+    /* 安全区适配：贴底元素避开 iPhone Home Indicator。
+       终端页右下角控件列在 Term.js 内联样式中，由该文件自行处理，此处只覆盖通用部分。 */
+    .ant-layout-footer {
+        padding-bottom: calc(24px + var(--safe-bottom, 0px));
+    }
+
+    /* 弹窗底部留出安全区，长弹窗滚动到底时内容不被手势条遮挡 */
+    .ant-modal-wrap {
+        padding-bottom: var(--safe-bottom, 0px);
+    }
+
+    /* 抽屉同理：文件管理在 Drawer 内（终端页/接入页/存储页 3 个入口），
+       分页控件贴在抽屉底部，不加安全区会被 iOS 手势条覆盖，点击易被系统手势抢走 */
+    .ant-drawer-body {
+        padding-bottom: calc(24px + var(--safe-bottom, 0px)) !important;
+    }
+
+    /* Info page: full-width inputs (overrides inline width: 240 in Info.js) */
+    .info-tab .ant-input {
+        width: 100% !important;
+    }
+
+    /* —— ProCard / StatisticCard：窄屏下横向分栏改纵向堆叠 ——
+       ProCard 的 split 在窄屏仍左右并排，每列被压到约 195px：
+       统计卡文字被迫逐字竖排（"利用率"→"利/用/率"）、图表与内容横向挤在一起。
+       首页（数据概览）与系统监控页实测越界 82~396px，右侧内容被裁。
+       :has() 需 Chrome 105+ / Safari 15.4+；不支持的旧浏览器仅忽略本组规则（回退为原状）。 */
+    .ant-pro-card-body:has(> .ant-pro-card-col) {
+        flex-direction: column !important;
+    }
+
+    /* 例外：纯统计卡组（子列直接就是 StatisticCard）保持两列。
+       全改成纵向后每张卡独占一行、留白过大（首页 4 张统计卡 → 2×2 网格更紧凑）；
+       含图表的卡片仍走上面的纵向堆叠，避免图表被压窄。 */
+    .ant-pro-card-body:has(> .ant-pro-card-col > .ant-pro-statistic-card) {
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+    }
+
+    .ant-pro-card-body:has(> .ant-pro-card-col > .ant-pro-statistic-card) > .ant-pro-card-col {
+        flex: 1 1 50% !important;
+        max-width: 50% !important;
+    }
+
+    .ant-pro-statistic-card-content-horizontal {
+        flex-direction: column !important;
+        align-items: stretch !important;
+    }
+
+    /* 图表容器原本固定 100/200px 宽，窄屏改为自适应，避免撑破卡片 */
+    .ant-pro-statistic-card-chart {
+        width: auto !important;
+        max-width: 100% !important;
+    }
+
+    .ant-pro-statistic-card-chart-left {
+        margin-right: 0 !important;
+        margin-bottom: 8px !important;
+    }
+
+    /* —— ProTable 工具栏：窄屏允许换行与收缩 ——
+       工具栏右侧按钮组宽度不受限，会把整行撑出视口（资产页实测越界 50px，
+       表现为右上角按钮被裁掉一截）。 */
+    .ant-pro-table-list-toolbar-container {
+        flex-wrap: wrap !important;
+    }
+
+    .ant-pro-table-list-toolbar-container > * {
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    .ant-pro-table-list-toolbar-left {
+        flex-wrap: wrap !important;
+    }
+
+    .ant-pro-table-list-toolbar-container .ant-space-horizontal {
+        flex-wrap: wrap !important;
+        row-gap: 8px !important;
+    }
+
+    /* antd Row 的负外边距在窄屏造成的微量溢出（文件管理页实测 4px） */
+    .ant-row.ant-row-space-around {
+        margin-inline: 0 !important;
+    }
+
+    /* —— 表单与列表工具栏紧凑化 ——
+       桌面端的间距（表单项 24px、label 下内边距、工具栏上下留白）在手机上过大，
+       实测「名称」输入框到「重置/查询」按钮的间距达 59px，整页显得稀稀落落。
+       另外查询表单的「操作行」本就没有 label，却仍为它预留约 30px 占位高度。 */
+    .ant-form-item {
+        margin-bottom: 12px !important;
+    }
+
+    .ant-form-item-label {
+        padding-bottom: 2px !important;
+    }
+
+    /* 查询表单操作行（重置/查询/展开）：去掉 label 占位，间距 59px → 17px */
+    .pro-form-query-filter-actions .ant-form-item-label {
+        display: none !important;
+    }
+
+    /* ProTable 工具栏上下留白与卡片间距收紧 */
+    .ant-pro-table-list-toolbar {
+        padding-block: 8px !important;
+    }
+
+    .ant-pro-table-list-toolbar-container {
+        padding-block: 4px !important;
+    }
+
+    .ant-pro-card + .ant-pro-card {
+        margin-top: 8px !important;
+    }
+
+    /* —— 移动端触摸交互 —— */
+
+    /* 触摸反馈：移动端没有 hover，按压时需要可见反馈，否则点了没底 */
+    .ant-btn:active:not(:disabled),
+    .ant-pro-table-list-toolbar .ant-btn:active:not(:disabled) {
+        opacity: 0.7;
+    }
+
+    /* 关键控件触摸目标略放大：antd 默认 32px 在手机上偏小、容易点错。
+       仅提到 36px（+4px），不至于破坏列表页的紧凑度。 */
+    .ant-form .ant-input,
+    .ant-form .ant-input-affix-wrapper,
+    .ant-form .ant-select-single .ant-select-selector,
+    .ant-form .ant-btn,
+    .ant-pro-table-list-toolbar .ant-btn {
+        min-height: 36px;
+    }
+
+    /* 表格行可点区域：适当加高，手指点选更稳 */
+    .ant-table-tbody > tr > td {
+        padding-block: 10px !important;
+    }
+
+    /* —— 表格行内操作链接：手机端最严重的误触源 ——
+       实测（iPhone 390px 视口，用户列表）：每个操作链接只有 28×16px，而同一行内
+       相邻链接只隔 16px。16px 的高度远低于 44px 的最小触摸目标，「点编辑却点到删除」
+       在这类行内操作上是高频事故，而删除是不可逆的。
+
+       可用空间实测：所在单元格高 44px（垂直余量 28px），链接水平间距 16px。
+       因此给链接加 padding 扩大命中区，再用等量负 margin 抵消，
+       视觉密度与列宽完全不变；横向各让出 4px 后仍余 8px 间隔，不会与相邻链接重叠。
+
+       必须用 inline-block：<a> 默认是 inline，垂直方向的 padding 虽会绘制、
+       也会扩大命中区，但不参与行盒计算，会与上下行内容重叠。
+       选择器精确限定在操作列的 .ant-space-item 内，避免影响名称列的文本链接。 */
+    .ant-table-tbody td.ant-table-cell .ant-space-item > a {
+        display: inline-block;
+        padding: 8px 4px;
+        margin: -8px -4px;
+    }
+
+    /* 表格操作列与文件管理工具栏里的 size="small" 按钮：antd 的 .ant-btn-sm 只有 24px 高，
+       实测文件管理的「编辑/下载/重命名/删除」四个按钮横排在约 210px 列里、
+       「重命名」与「删除」间距仅约 10px —— 手机上是明确的误触风险
+       （删除有 Popconfirm 兜底，重命名会直接进弹窗）。 */
+    .ant-table-tbody .ant-btn-sm,
+    .fs-header .ant-btn-sm {
+        min-height: 32px;
+        min-width: 32px;
+    }
+
+    /* —— 图标按钮与弹窗按钮：补足到 36px ——
+       上面已有的 36px 规则只覆盖「表单内」与「ProTable 工具栏内」的按钮，
+       这两类之外的 antd 按钮在手机上仍是 32×32（系统监控与设置页实测各有 9 个）。
+       图标按钮是纯图标、没有文字可借力，32px 命中率明显偏低；
+       弹窗底部的确定/取消是最高频的确认动作，同样补足。 */
+    .ant-btn-icon-only {
+        min-width: 36px;
+        min-height: 36px;
+    }
+
+    .ant-modal-footer .ant-btn {
+        min-height: 36px;
+        padding-inline: 16px;
+    }
+
+
+    /* —— 普适紧凑化：桌面端的留白尺度（24px 内边距、16px 页边距）在手机上偏大 —— */
+
+    /* 卡片内边距收紧（ProCard 与普通 Card 一并处理） */
+    .ant-pro-card-body {
+        padding-inline: 12px !important;
+    }
+
+    .ant-card-body {
+        padding: 12px !important;
+    }
+
+    /* 页面内容区左右留白收紧 */
+    .page-container,
+    .page-detail-warp {
+        padding-inline: 10px !important;
+    }
+
+    /* 页脚收紧：内容不足一屏时，底部空白区域能明显变小 */
+    .ant-layout-footer {
+        padding-block: 12px !important;
+        font-size: 12px !important;
+    }
+
+    /* ============================================================
+       底部标签栏（应用级导航）
+       桌面端是「左侧 Sider + 汉堡 + 面包屑」，手机上的既定范式是底部标签栏：
+       一级功能常驻拇指区、一步直达、当前位置可见。仅在移动端媒体查询内生效。
+       ============================================================ */
+    .nt-tabbar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        /* z-index 必须低于 antd Modal / Drawer 的 1000：
+           否则全屏弹窗打开时标签栏会盖在弹窗底部操作栏（确定/取消）上面——
+           实测截图可见，弹窗看起来「没有确定按钮」。
+           取 900：高于页面内容与终端页的悬浮按钮，低于所有浮层。 */
+        z-index: 900;
+        display: flex;
+        align-items: stretch;
+        background: #ffffff;
+        border-top: 1px solid #e8e8e8;
+        /* 安全区：全面屏底部手势条，避免标签被压住或误触系统手势 */
+        padding-bottom: var(--safe-bottom, 0px);
+        padding-left: var(--safe-left, 0px);
+        padding-right: var(--safe-right, 0px);
+        box-shadow: 0 -1px 4px rgba(0, 21, 41, .06);
+    }
+
+    .nt-tabbar-item {
+        flex: 1 1 0;
+        min-width: 0; /* 允许收缩，标签文字过长时省略而不是撑破 */
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        /* 56px 是 iOS TabBar 的标准高度；加上安全区后拇指落点最舒适 */
+        min-height: 56px;
+        padding: 6px 0 4px;
+        border: 0;
+        background: transparent;
+        color: #8c8c8c;
+        font-size: 11px;
+        line-height: 1.2;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition: color .15s;
+    }
+
+    .nt-tabbar-item.is-active {
+        color: #1890ff;
+    }
+
+    /* 触摸反馈：移动端没有 hover，按压必须可见 */
+    .nt-tabbar-item:active {
+        background: rgba(0, 0, 0, .04);
+    }
+
+    .nt-tabbar-icon {
+        font-size: 20px;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+    }
+
+    .nt-tabbar-label {
+        max-width: 100%;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    /* TUI 按键条：单行横向滚动。滚动条隐藏（触屏上无意义且占高度），
+       -webkit-overflow-scrolling 让 iOS 横向滑动有惯性；
+       overscroll-behavior 防止滑到头时把整页带着一起动。 */
+    .nt-keybar-scroll {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+    }
+
+    .nt-keybar-scroll::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* 顶栏标题：当前页名，字号略大于正文、字重中等，占据原本面包屑的位置 */
+    .nt-mobile-title {
+        font-size: 16px;
+        font-weight: 500;
+        color: rgba(0, 0, 0, .85);
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    /* 内容区给标签栏让位：56px + 安全区 + 一点呼吸空间。
+       不加这段时页面最后一行会被标签栏永久盖住。 */
+    .nt-mobile-content {
+        padding-bottom: calc(64px + var(--safe-bottom, 0px));
+    }
+
+
+    /* ============================================================
+       移动端卡片列表（MobileList）
+       替代桌面端的「整块查询表单 + 多列表格 + 工具栏」三件套。
+       实测那套在 390×844 上：查询表单独占 44% 首屏、表格只能看到前 4 列。
+       ============================================================ */
+    .ml {
+        display: flex;
+        flex-direction: column;
+        min-height: 100%;
+    }
+
+    /* —— 搜索行：常驻一行，替代整块查询表单 —— */
+    .ml-searchbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 12px;
+        background: #fff;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .ml-search {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .ml-filter-btn {
+        flex: 0 0 auto;
+        /* 与输入框同高，拇指友好 */
+        height: 36px;
+    }
+
+    /* —— 标题行：条数 + 页面级操作 —— */
+    .ml-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px 4px;
+    }
+
+    .ml-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: rgba(0, 0, 0, .85);
+    }
+
+    .ml-count {
+        font-size: 12px;
+        color: #8c8c8c;
+    }
+
+    .ml-header-extra {
+        margin-left: auto;
+    }
+
+    .ml-error {
+        margin: 8px 12px;
+        padding: 10px 12px;
+        background: #fffbe6;
+        border: 1px solid #ffe58f;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #874d00;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .ml-loading {
+        display: flex;
+        justify-content: center;
+        padding: 48px 0;
+    }
+
+    /* —— 卡片 ——
+       信息按重要性分三层：主标题 → 关键字段行 → 元信息行。
+       不再用「列」，所以不存在横向滚动。 */
+    .ml-cards {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 8px 12px;
+    }
+
+    .ml-card {
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+    }
+
+    /* 卡片内的行内操作按钮：44px 触摸目标，横向可换行 */
+    .ml-card-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid #f5f5f5;
+    }
+
+    .ml-card-actions .ant-btn {
+        min-height: 36px;
+        flex: 1 1 auto;
+        min-width: 72px;
+    }
+
+    .ml-card-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 15px;
+        font-weight: 600;
+        color: rgba(0, 0, 0, .88);
+        margin-bottom: 6px;
+        min-width: 0;
+    }
+
+    .ml-card-title > span:first-child {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        min-width: 0;
+    }
+
+    .ml-card-row {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        font-size: 13px;
+        line-height: 1.7;
+        color: rgba(0, 0, 0, .65);
+    }
+
+    .ml-card-row .k {
+        flex: 0 0 auto;
+        color: #8c8c8c;
+        min-width: 56px;
+    }
+
+    .ml-card-row .v {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: rgba(0, 0, 0, .78);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .ml-sentinel {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 16px 0 calc(16px + var(--safe-bottom, 0px));
+        min-height: 44px;
+    }
+
+    .ml-end {
+        font-size: 12px;
+        color: #bfbfbf;
+    }
+
+    /* —— 筛选抽屉 —— */
+    .ml-filter-title {
+        font-size: 15px;
+        font-weight: 600;
+        margin-bottom: 12px;
+    }
+
+    .ml-filter-item {
+        margin-bottom: 14px;
+    }
+
+    .ml-filter-label {
+        font-size: 13px;
+        color: #595959;
+        margin-bottom: 6px;
+    }
+
+    .ml-filter-actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 8px;
+    }
+
+
+    /* ============================================================
+       弹窗全屏化（App 级表单体验）
+       桌面端的居中弹窗（520~960px）在手机上只能缩到约 351px，
+       内部表单被压成「标签一列、控件一列」各约 90px，长标签逐字折行；
+       键盘弹起后弹窗还被顶得只剩半屏。
+       手机上的既定范式是：**整页表单**——固定标题栏 + 可滚动内容 + 固定操作栏。
+       这里纯用 CSS 一次性覆盖全部弹窗，不改任何组件（21 个弹窗逐个改风险高得多）。
+       ============================================================ */
+    /* :not(.ant-modal-confirm) 是必须的：
+       Modal.confirm / Popconfirm 之外的 info/success/error 也走 .ant-modal，
+       把「您确定要删除此行吗?」这种确认框撑成全屏是荒谬的，必须排除。 */
+    .ant-modal:not(.ant-modal-confirm) {
+        width: 100vw !important;
+        max-width: 100vw;
+        top: 0;
+        margin: 0;
+        padding-bottom: 0;
+        /* dvh 随软键盘收缩，避免键盘弹起后底部操作栏被顶出视口 */
+        height: 100dvh;
+    }
+
+    .ant-modal:not(.ant-modal-confirm) .ant-modal-content {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        border-radius: 0;
+        /* 顶栏与安全区对齐（刘海/状态栏） */
+        padding-top: var(--safe-top, 0px);
+    }
+
+    .ant-modal:not(.ant-modal-confirm) .ant-modal-header,
+    .ant-modal:not(.ant-modal-confirm) .ant-modal-close {
+        flex: 0 0 auto;
+    }
+
+    .ant-modal:not(.ant-modal-confirm) .ant-modal-title {
+        font-size: 16px;
+        text-align: center;
+    }
+
+    /* 内容区唯一滚动体 */
+    .ant-modal:not(.ant-modal-confirm) .ant-modal-body {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 16px 16px 8px;
+    }
+
+    /* 操作栏固定在底部：长表单滚到底才能点到「确定」是移动端最典型的挫败点 */
+    .ant-modal:not(.ant-modal-confirm) .ant-modal-footer {
+        flex: 0 0 auto;
+        border-top: 1px solid #f0f0f0;
+        padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
+        margin-top: 0;
+        background: #fff;
+    }
+
+    .ant-modal:not(.ant-modal-confirm) .ant-modal-footer .ant-btn {
+        min-height: 40px;
+    }
+
+    /* 弹窗外层不再滚动（滚动交给 modal-body），避免出现两层滚动条 */
+    .ant-modal-wrap:has(.ant-modal:not(.ant-modal-confirm)) {
+        overflow: hidden;
+    }
+
+    /* —— 表单改为竖向布局 ——
+       横向布局在窄屏下「标签列 + 控件列」各占一半，长标签逐字折行
+       （实测「启用字体平滑（ClearType）」折成 3 行），控件只剩约 90px。
+       竖向：标签在上、控件占满整行。 */
+    .ant-modal:not(.ant-modal-confirm) .ant-form-item {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .ant-modal:not(.ant-modal-confirm) .ant-form-item-label {
+        text-align: left;
+        width: auto !important;
+        max-width: 100%;
+        padding-bottom: 4px;
+    }
+
+    .ant-modal:not(.ant-modal-confirm) .ant-form-item-control {
+        max-width: 100% !important;
+        margin-left: 0 !important;
+    }
+
+    /* 竖向布局下 label 不再需要冒号占位，留白也更干净 */
+    .ant-modal:not(.ant-modal-confirm) .ant-form-item-label > label::after {
+        display: none;
+    }
+
+
+    /* —— 配置类页面（系统设置、个人中心）的内联表单同样改竖向 ——
+       这些页面不是弹窗，是全宽页面 + Tabs + 内联表单，上面的弹窗规则不覆盖它们。
+       它们的 formItemLayout 是 labelCol/wrapperCol 各 span 12 —— 窄屏下标签与控件
+       各占一半（约 92px），「启用字体平滑（ClearType）」这类长标签会逐字折成 3 行。
+       竖向化后标签在上、控件占满整行。
+
+       注意作用域限定在 .page-container-white（Settings/Info 使用的容器类），
+       不影响列表页的查询表单——查询表单在窄屏本就该紧凑横排。 */
+    .page-container-white .ant-form-item {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .page-container-white .ant-form-item-label {
+        text-align: left;
+        width: auto !important;
+        max-width: 100%;
+        padding-bottom: 4px;
+    }
+
+    .page-container-white .ant-form-item-control {
+        max-width: 100% !important;
+        margin-left: 0 !important;
+    }
+
+    .page-container-white .ant-form-item-label > label::after {
+        display: none;
+    }
+
+
+    /* ============================================================
+       TUI 按键条（两层结构）
+       设计：主层 6 个高频键 + 「⋯」占一行，390px 屏上无需滑动即可全部点到；
+       低频键点「⋯」后在上方展开一层。旧版 23 键单行横向滚动，
+       每次按 Ctrl+C 都要先滑一段，效率反而不如原生 7 键。
+       ============================================================ */
+    .nt-keybar {
+        position: absolute;
+        left: 6px;
+        right: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .nt-keybar-row {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        background: rgba(28, 28, 30, 0.9);
+        backdrop-filter: blur(8px);
+        border-radius: 12px;
+        padding: 6px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+    }
+
+    /* 主层：6 个常驻键 + ⋯ + ⌄ 等分整行，不滚动、不换行。
+       ⋯ 与 ⌄ 是「控制键」不是「输入键」，给固定窄宽（34px）；
+       余下宽度由 6 个输入键均分 —— 390px 下每个约 44px，正好是触摸目标下限。 */
+    .nt-keybar-main {
+        justify-content: stretch;
+    }
+
+    .nt-keybar-main .nt-key {
+        flex: 1 1 0;
+        min-width: 0;
+        padding-inline: 2px;
+    }
+
+    .nt-keybar-main .nt-key-toggle,
+    .nt-keybar-main .nt-key-collapse {
+        flex: 0 0 34px;
+        padding-inline: 0;
+    }
+
+    /* 次层：键多，横向可滚（低频键滑动是可接受的） */
+    .nt-keybar-more {
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+    }
+
+    .nt-keybar-more::-webkit-scrollbar {
+        display: none;
+    }
+
+    .nt-keybar-more .nt-key {
+        flex: 0 0 auto;
+        min-width: 46px;
+    }
+
+    .nt-keybar .nt-key {
+        min-height: 38px !important;
+        border-radius: 8px !important;
+        color: #f0f0f0 !important;
+        background: rgba(255, 255, 255, 0.12) !important;
+        border: 1px solid rgba(255, 255, 255, 0.16) !important;
+        font-family: monospace !important;
+        font-size: 13px !important;
+    }
+
+    /* 触摸反馈：移动端没有 hover，按压必须可见 */
+    .nt-keybar .nt-key:active {
+        background: rgba(255, 255, 255, 0.28) !important;
+    }
+
+    .nt-key-toggle.is-open {
+        color: #1890ff !important;
+        border-color: rgba(24, 144, 255, 0.6) !important;
+        background: rgba(24, 144, 255, 0.16) !important;
+    }
+
+    /* —— 字号面板：始终暗色（浮在暗色终端背景上，不跟随浅/深色主题）—— */
+    .nt-font-panel {
+        background: rgba(28, 28, 30, 0.94);
+        backdrop-filter: blur(8px);
+        border-radius: 12px;
+        padding: 10px 12px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 210px;
+    }
+    .nt-font-panel-title {
+        color: #ccc;
+        font-size: 13px;
+        font-weight: 500;
+    }
+    .nt-font-panel-current {
+        color: #8c8c8c;
+    }
+    .nt-font-panel .nt-font-panel-close {
+        min-width: 32px !important;
+        min-height: 32px !important;
+        color: #8c8c8c !important;
+    }
+    .nt-font-panel .nt-font-size-btn {
+        min-width: 40px !important;
+        min-height: 36px !important;
+        border-radius: 8px !important;
+        font-family: monospace !important;
+        color: #c8c8c8 !important;
+        background: rgba(255, 255, 255, 0.10) !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    }
+    .nt-font-panel .nt-font-size-btn.is-active {
+        color: #fff !important;
+        background: rgba(24, 144, 255, 0.85) !important;
+        border-color: transparent !important;
+    }
+    .nt-font-panel-hint {
+        color: #8c8c8c;
+        font-size: 11px;
+        line-height: 1.5;
+    }
+
+}
+
+/* 超窄屏（手机竖屏）：UserLayout 顶栏只留图标文字标签，避免必须横向滚动才能看到昵称。
+   此处 480px 仅为本组纯样式微调，与 use-breakpoint.js 的 768px 逻辑断点无关；
+   规则同样置于媒体查询内，桌面零影响。
+   antd Button 的 DOM 为 <button><span class="anticon"/><span>文字</span></button>，
+   故用 :not(.anticon) 精确命中文字 span（图标保留）。 */
+@media (max-width: 480px) {
+    .km-header .ant-btn > span:not(.anticon) {
+        display: none;
+    }
+}

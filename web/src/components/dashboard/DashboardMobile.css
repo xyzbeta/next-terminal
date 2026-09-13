@@ -1,0 +1,320 @@
+/* 移动端控制面板（DashboardMobile.js）专用样式。
+ *
+ * 为什么这些规则不放进 mobile.css：
+ *   mobile.css 的定位是「覆盖桌面样式的移动端版本」，整块包在媒体查询里，
+ *   前提是页面上存在一套桌面 DOM 需要被改写法。而移动端控制面板没有桌面对应物
+ *   —— 桌面走的是 DashboardDesktop（ProCard + G2Plot），两者是不同的组件树，
+ *   没有任何一条规则需要「在窄屏时改写某个元素」。
+ *   这些是纯新增组件样式，跟着组件走更内聚；且类名统一 md- 前缀，
+ *   只作用在本组件渲染出的 DOM 上，不会外溢。
+ *
+ * 命名与取值对齐 mobile.css 的卡片规范（白底 / 10px 圆角 / 0 1px 3px 阴影 /
+ * 12px 内边距 / #1890ff 主色），保证与其它移动端页面观感一致。
+ *
+ * 三档文字灰阶（与 mobile.css 的 .ml-card-* 一致）：
+ *   .85 主标题 / .65 正文 / .45 次要 / .3 注脚与占位
+ */
+
+.md-page {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 12px;
+}
+
+.md-center {
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+}
+
+/* —— 加载失败：把「加载中」结束掉并给出重试入口。
+   失败原因由 request.js → ManagerLayout 的全局横幅说明，此处不重复。 —— */
+.md-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    background: #fffbe6;
+    border: 1px solid #ffe58f;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #874d00;
+}
+
+.md-hint {
+    padding: 18px 0;
+    text-align: center;
+    font-size: 13px;
+    color: rgba(0, 0, 0, .3);
+}
+
+/* ============================================================
+   关键数字 2×2
+   桌面端的统计卡是「图标 + 标题 + 值」横排、由 ProCard 分栏撑出五层嵌套；
+   这里改为「标签 / 数值 / 注脚」三行竖排的固定网格——
+   2×2 一屏内看完，不需要滚动，数字本身是唯一主角。
+   ============================================================ */
+.md-grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.md-stat {
+    background: #fff;
+    border-radius: 10px;
+    padding: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+    min-width: 0; /* grid item 默认 min-width:auto，长数字会把列撑破 */
+}
+
+.md-stat-label {
+    font-size: 12px;
+    color: rgba(0, 0, 0, .45);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.md-stat-value {
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: rgba(0, 0, 0, .88);
+    margin: 4px 0 2px;
+    /* 等宽数字：切按周/按月或数值跳动时，2×2 网格不会跟着抖 */
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.md-stat-note {
+    font-size: 11px;
+    color: rgba(0, 0, 0, .3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ============================================================
+   通用卡片
+   ============================================================ */
+.md-card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+}
+
+.md-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.md-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(0, 0, 0, .85);
+}
+
+.md-card-extra {
+    font-size: 12px;
+    color: rgba(0, 0, 0, .45);
+}
+
+/* 按周/按月切换（antd Segmented）：默认档位只有 24~28px 高，手指容易点偏。
+   补到 32px 并加宽横向内边距——卡片标题行里再高就会把标题挤走，
+   而这是个只有两个选项、且非破坏性的切换，32px 是这里的合理折中。 */
+.md-card-head .ant-segmented-item-label {
+    min-height: 32px;
+    line-height: 32px;
+    padding: 0 12px;
+}
+
+/* ============================================================
+   会话趋势（小倍数条形图）
+   三行 = 三个指标，每行一套独立标度的条形。
+   每行三列：指标名 56px ┃ 条形轨道 1fr ┃ 峰值 40px。
+   轴标签行复用同一套列宽，保证日期与条形轨道左右对齐。
+   ============================================================ */
+.md-trend {
+    transition: opacity .2s;
+}
+
+/* 切按周/按月时重新请求：不整屏闪骨架（会让页面跳），只把图表置灰表示「在更新」 */
+.md-trend.is-loading {
+    opacity: .4;
+}
+
+.md-trend-row {
+    display: grid;
+    grid-template-columns: 56px 1fr 40px;
+    align-items: center;
+    gap: 8px;
+}
+
+.md-trend-head {
+    margin-bottom: 2px;
+}
+
+.md-trend-peak-label {
+    font-size: 11px;
+    color: rgba(0, 0, 0, .3);
+    text-align: right;
+}
+
+.md-trend-name {
+    font-size: 12px;
+    color: rgba(0, 0, 0, .65);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.md-trend-bars {
+    display: flex;
+    align-items: flex-end; /* 条形从底部向上生长 */
+    justify-content: space-between; /* 条被 max-width 限宽后，余量均匀分配到条之间 */
+    gap: 1px;
+    height: 40px;
+    min-width: 0;
+}
+
+.md-trend-bar {
+    flex: 1 1 0;
+    min-width: 0; /* 30 天时每根约 7px，不允许按内容撑宽 */
+    /* 限宽 18px：周模式只有 7 根，不限宽会摊成 33px 宽的大色块，
+       视觉重量盖过其它行，诱使跨行比较面积——而三行是各自独立标度
+       （见 DashboardMobile.js 的说明），比面积会得出错误结论。
+       月模式每根自然宽度约 7px，不受此限制。 */
+    max-width: 18px;
+    border-radius: 2px;
+    transition: height .25s;
+}
+
+.md-trend-peak {
+    font-size: 12px;
+    text-align: right;
+    color: rgba(0, 0, 0, .65);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.md-trend-axis {
+    margin-top: 4px;
+}
+
+.md-trend-axis-dates {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: rgba(0, 0, 0, .3);
+}
+
+/* ============================================================
+   资产类型（横向条形）
+   桌面上是饼图。饼图在 390px 上扇区角度无法分辨谁多谁少，
+   横向条形可以直接比长度，且能同时标出准确数值。
+   ============================================================ */
+.md-assets {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.md-asset-row {
+    display: grid;
+    grid-template-columns: 48px 1fr 36px;
+    align-items: center;
+    gap: 8px;
+}
+
+.md-asset-name {
+    font-size: 12px;
+    color: rgba(0, 0, 0, .65);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.md-asset-track {
+    height: 8px;
+    background: #f0f0f0;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.md-asset-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width .25s;
+}
+
+.md-asset-value {
+    font-size: 12px;
+    text-align: right;
+    color: rgba(0, 0, 0, .65);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ============================================================
+   最近连接
+   本页唯一的「操作」入口（其余都是只读数据），因此放在统计卡正下方而非页尾。
+   两列 2×2：四台是拇指区一眼扫完、不用滑动就能点到的上限。
+   每格 = 协议角标 + 资产名；角标承担「这台的类型」，省掉一行文字。
+   ============================================================ */
+.md-recent {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.md-recent-item {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    /* 52px 高于 44px 最小触摸目标 */
+    min-height: 52px;
+    padding: 8px 10px;
+    background: #fafafa;
+    border: 1px solid #f0f0f0;
+    border-radius: 10px;
+    color: rgba(0, 0, 0, .78);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    min-width: 0;
+    text-align: left;
+}
+
+/* 触摸反馈：移动端没有 hover，按压必须可见 */
+.md-recent-item:active {
+    background: #f0f0f0;
+}
+
+.md-recent-badge {
+    flex: 0 0 auto;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: #fff;
+    letter-spacing: .2px;
+}
+
+.md-recent-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

@@ -19,6 +19,7 @@ import {
 import {SortAscendingOutlined} from "@ant-design/icons";
 import {Link, useNavigate} from "react-router-dom";
 import {ProTable, TableDropdown} from "@ant-design/pro-components";
+import {useIsMobile} from "../../hook/use-breakpoint";
 import assetApi from "../../api/asset";
 import tagApi from "../../api/tag";
 import {PROTOCOL_COLORS} from "../../common/constants";
@@ -30,11 +31,27 @@ import Show from "../../dd/fi/show";
 import {hasMenu} from "../../service/permission";
 import ChangeOwner from "./ChangeOwner";
 import dayjs from "dayjs";
+import MobileList from "../mobile/MobileList";
 
 const api = assetApi;
 const {Content} = Layout;
 
-const actionRef = React.createRef();
+// 卡片标题里的名称文字：MobileList 的 .ml-card-title 只对「第一个 span 子元素」做省略，
+// 而协议 Tag（也是 span）才是第一个子元素，名称拿到的是不收缩的默认 flex 行为，
+// 遇到超长资产名会撑破卡片造成横向溢出。这里显式补上省略规则。
+const cardTitleTextStyle = {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    minWidth: 0,
+};
+
+// 状态点：不参与收缩（不被长名称挤扁），并固定贴在标题行最右侧
+const cardStatusStyle = {
+    flex: '0 0 auto',
+    marginLeft: 'auto',
+};
+
 
 function downloadImportExampleCsv() {
     let csvString = 'name,ssh,127.0.0.1,22,username,password,privateKey,passphrase,description,tag1|tag2|tag3';
@@ -52,6 +69,8 @@ const importExampleContent = <>
 </>
 
 const Asset = () => {
+    const actionRef = React.useRef(null);
+    const isMobile = useIsMobile();
     let [visible, setVisible] = useState(false);
     let [confirmLoading, setConfirmLoading] = useState(false);
     let [selectedRowKey, setSelectedRowKey] = useState(undefined);
@@ -61,6 +80,8 @@ const Asset = () => {
 
     let [selectedRow, setSelectedRow] = useState(undefined);
     let [changeOwnerVisible, setChangeOwnerVisible] = useState(false);
+    // 新建/编辑后让移动端列表重新取数（卡片列表自管分页，没有 actionRef 可 reload）
+    const [mobileReloadKey, setMobileReloadKey] = useState(0);
     let [sortMode, setSortMode] = useState(false); // 排序模式：仅开启时允许整行拖拽排序
     const dragStateRef = React.useRef(null);        // {fromId, row} 拖拽中状态（DOM 级反馈）
 
@@ -358,7 +379,11 @@ const Asset = () => {
                             key={'confirm-delete'}
                             title="您确认要删除此行吗?"
                             onConfirm={async () => {
-                                await api.deleteById(record.id);
+                                const ok = await api.deleteById(record.id);
+                                if (!ok) {
+                                    return;
+                                }
+                                message.success('删除成功');
                                 actionRef.current.reload();
                             }}
                             okText="确认"
@@ -468,6 +493,193 @@ const Asset = () => {
         setChangeOwnerVisible(true);
     }
 
+    // 移动端：卡片列表替代「查询表单 + 多列表格 + 工具栏」。
+    // 桌面端分支完全不动——排序模式（整行拖拽）是桌面端专有特性，不搬到卡片里：
+    // HTML5 draggable 在触摸屏上根本不触发，且该模式会一次性拉取全量资产。
+    if (isMobile) {
+        // 桌面端的 handleOk 结尾依赖 actionRef.current.reload()，而移动端不挂载 ProTable
+        //（actionRef.current 为 null），故这里用 reloadKey 让卡片列表重新取数，
+        // 桌面端那份处理函数一行未动。
+        const mobileHandleOk = async (values) => {
+            setConfirmLoading(true);
+            try {
+                let success;
+                if (values['id']) {
+                    success = await api.updateById(values['id'], values);
+                } else {
+                    success = await api.create(values);
+                }
+                if (success) {
+                    setVisible(false);
+                }
+                setMobileReloadKey((k) => k + 1);
+            } finally {
+                setConfirmLoading(false);
+                setSelectedRowKey(undefined);
+                setCopied(false);
+            }
+        };
+
+        const tagOptions = tagQuery.data
+            ?.filter(tag => tag !== '-')
+            .map(tag => ({label: tag, value: tag}));
+
+        return (
+            <div className="page-container">
+                <MobileList
+                    key={mobileReloadKey}
+                    title="资产"
+                    searchPlaceholder="搜索资产名称"
+                    emptyText="暂无资产"
+                    headerExtra={
+                        <Show menu={'asset-add'}>
+                            <Button type="primary" onClick={() => {
+                                setSelectedRowKey(undefined);
+                                setCopied(false);
+                                setVisible(true);
+                            }}>
+                                新建
+                            </Button>
+                        </Show>
+                    }
+                    filters={[
+                        {
+                            name: 'protocol', label: '协议', options: [
+                                {label: 'RDP', value: 'rdp'},
+                                {label: 'SSH', value: 'ssh'},
+                                {label: 'Telnet', value: 'telnet'},
+                                {label: 'Kubernetes', value: 'kubernetes'},
+                            ]
+                        },
+                        {name: 'tags', label: '标签', options: tagOptions},
+                        {
+                            name: 'active', label: '状态', options: [
+                                {label: '运行中', value: 'true'},
+                                {label: '不可用', value: 'false'},
+                            ]
+                        },
+                    ]}
+                    request={async ({pageIndex, pageSize, keyword, filters: f}) => {
+                        const r = await api.getPaging({
+                            pageIndex,
+                            pageSize,
+                            name: keyword,
+                            protocol: f.protocol,
+                            tags: f.tags,
+                            active: f.active,
+                        });
+                        return {items: r['items'] || [], total: r['total'] || 0};
+                    }}
+                    renderCard={(record) => {
+                        const protocol = record['protocol'];
+                        const id = record['id'];
+                        const name = record['name'];
+                        // 与桌面端同一跳转规则：ssh 走原生终端，其余走 Guacamole 接入页
+                        const url = protocol === 'ssh'
+                            ? `#/term?assetId=${id}&assetName=${name}`
+                            : `#/access?assetId=${id}&assetName=${name}&protocol=${protocol}`;
+                        const tags = (record['tags'] || '')
+                            .split(',')
+                            .filter(tag => tag && tag !== '-')
+                            .join(' / ');
+                        const description = record['description'] === '-' ? '' : record['description'];
+                        return (
+                            <>
+                                <div className="ml-card-title">
+                                    <Tag color={PROTOCOL_COLORS[protocol]}
+                                         style={{marginRight: 0, flex: '0 0 auto'}}>
+                                        {protocol}
+                                    </Tag>
+                                    <span style={cardTitleTextStyle}>{name}</span>
+                                    {/* 状态：桌面端是带文字的 Badge，卡片标题行位置有限，只留状态点 + 说明 */}
+                                    {record['testing'] === true ? (
+                                        <Tooltip title='测试中'>
+                                            <Badge status="processing" style={cardStatusStyle}/>
+                                        </Tooltip>
+                                    ) : record['active'] ? (
+                                        <Tooltip title='运行中'>
+                                            <Badge status="success" style={cardStatusStyle}/>
+                                        </Tooltip>
+                                    ) : (
+                                        <Tooltip title={record['activeMessage'] || '不可用'}>
+                                            <Badge status="error" style={cardStatusStyle}/>
+                                        </Tooltip>
+                                    )}
+                                </div>
+                                {strings.hasText(description) && (
+                                    <div className="ml-card-row">
+                                        <span className="k">描述</span>
+                                        <span className="v">{description}</span>
+                                    </div>
+                                )}
+                                <div className="ml-card-row">
+                                    <span className="k">网络</span>
+                                    <span className="v">{`${record['ip'] || '-'}:${record['port'] || ''}`}</span>
+                                </div>
+                                <div className="ml-card-row">
+                                    <span className="k">所有者</span>
+                                    <span className="v">{record['ownerName'] || '-'}</span>
+                                </div>
+                                <div className="ml-card-row">
+                                    <span className="k">标签</span>
+                                    <span className="v">{tags || '-'}</span>
+                                </div>
+                                <div className="ml-card-row">
+                                    <span className="k">创建时间</span>
+                                    <span className="v">{record['created'] || '-'}</span>
+                                </div>
+                                <div className="ml-card-actions">
+                                    <Show menu={'asset-access'}>
+                                        <Button href={url} target='_blank'>接入</Button>
+                                    </Show>
+                                    <Show menu={'asset-edit'}>
+                                        <Button onClick={() => {
+                                            setSelectedRowKey(record['id']);
+                                            setVisible(true);
+                                        }}>
+                                            编辑
+                                        </Button>
+                                    </Show>
+                                    <Show menu={'asset-del'}>
+                                        <Popconfirm
+                                            title="您确认要删除此行吗?"
+                                            onConfirm={async () => {
+                                                const ok = await api.deleteById(record.id);
+                                                if (!ok) {
+                                                    return;
+                                                }
+                                                message.success('删除成功');
+                                                setMobileReloadKey((k) => k + 1);
+                                            }}
+                                            okText="确认"
+                                            cancelText="取消"
+                                        >
+                                            <Button danger>删除</Button>
+                                        </Popconfirm>
+                                    </Show>
+                                </div>
+                            </>
+                        );
+                    }}
+                />
+
+                {/* 编辑/新建共用的表单弹窗：移动端不挂载 ProTable，故本分支必须自带 */}
+                <AssetModal
+                    id={selectedRowKey}
+                    copied={copied}
+                    visible={visible}
+                    confirmLoading={confirmLoading}
+                    handleCancel={() => {
+                        setVisible(false);
+                        setSelectedRowKey(undefined);
+                        setCopied(false);
+                    }}
+                    handleOk={mobileHandleOk}
+                />
+            </div>
+        );
+    }
+
     return (<Content className="page-container">
         {/* 排序模式下整行拖拽：事件委托读取 antd 行 data-row-key，单步移动语义防乱序 */}
         <div
@@ -479,8 +691,9 @@ const Asset = () => {
         >
         <style>{`.asset-sort-mode { user-select: none; }
 .asset-sort-mode .ant-table-row { cursor: move; }
-.asset-sort-mode .ant-table-row:hover { background: #fafafa; }`}</style>
+.asset-sort-mode .ant-table-row:hover { background: var(--bg-track); }`}</style>
         <ProTable
+            scroll={isMobile ? {x: 'max-content'} : undefined}
             columns={columns}
             actionRef={actionRef}
             columnsState={{
@@ -584,7 +797,11 @@ const Asset = () => {
                                         okType: 'danger',
                                         cancelText: '取消',
                                         onOk: async () => {
-                                            await api.deleteById(selectedRowKeys.join(","));
+                                            const ok = await api.deleteById(selectedRowKeys.join(","));
+                                            if (!ok) {
+                                                return;
+                                            }
+                                            message.success('删除成功');
                                             actionRef.current.reload();
                                             setSelectedRowKeys([]);
                                         }
@@ -601,21 +818,26 @@ const Asset = () => {
                             连通性测试
                         </Button>
                     </Show>,
-                    <Button key="sort"
-                            type={sortMode ? 'primary' : 'default'}
-                            ghost={sortMode}
-                            icon={<SortAscendingOutlined/>}
-                            onClick={() => {
-                                setSortMode(!sortMode);
-                                if (sortMode) {
-                                    message.destroy();
-                                } else {
-                                    message.info('排序模式：拖动行调整顺序，点击完成排序退出', 3);
-                                }
-                                actionRef.current && actionRef.current.reload();
-                            }}>
-                        {sortMode ? '完成排序' : '排序'}
-                    </Button>
+                    // 排序模式仅桌面端提供：① HTML5 draggable 在 iOS/Android 触摸下
+                    // 不触发 dragstart，移动端一行也拖不动；② 该模式会把 pageSize 设为 9999
+                    // 一次性拉取全部资产，手机上一次误触就是一次全量请求。
+                    !isMobile && (
+                        <Button key="sort"
+                                type={sortMode ? 'primary' : 'default'}
+                                ghost={sortMode}
+                                icon={<SortAscendingOutlined/>}
+                                onClick={() => {
+                                    setSortMode(!sortMode);
+                                    if (sortMode) {
+                                        message.destroy();
+                                    } else {
+                                        message.info('排序模式：拖动行调整顺序，点击完成排序退出', 3);
+                                    }
+                                    actionRef.current && actionRef.current.reload();
+                                }}>
+                            {sortMode ? '完成排序' : '排序'}
+                        </Button>
+                    )
                 ];
             }}
         />
