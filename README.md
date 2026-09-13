@@ -41,13 +41,13 @@ Next Terminal 是一个简单好用安全的开源交互审计系统，支持 RD
 - 接入网关（SSH 隧道代理内网资产）
 - 系统监控
 
-### v1.5.0 新增功能与优化
+### 关于版本号
 
-以下是从 v1.3.9 跨越到 v1.5.0 的全部变更，涵盖移动端适配、暗黑模式、tmux 会话保持、断线重连、PWA 支持、性能优化与安全加固。
+v1.5.0 涵盖了从 v1.3.9 到 v1.5.0 的全部变更。中间的 v1.4.0～v1.4.4 以及后续数十轮迭代修复，统一归入 v1.5.0 发布。下文按功能域分类列出所有新增功能、优化和修复。
 
 ---
 
-## v1.5.0 新增功能
+## 一、新增功能
 
 ### 1. 移动端全面适配
 
@@ -104,6 +104,8 @@ Next Terminal 是一个简单好用安全的开源交互审计系统，支持 RD
 | 重连令牌 | HMAC-SHA256 无状态令牌，三重验证（令牌 + JWT + 归属） |
 | 强制重绘 | 重连后 `forceRemoteRedraw` — 抖动式 resize 触发 SIGWINCH 全屏重绘 |
 | 三不连原则 | 主动关闭 / 收到 Closed / close code 1000-1001 — 均不重连 |
+| RDP 重连 | guacd 隧道重连，挂接原隧道，画面由后续帧自然恢复 |
+| 输出泵自愈 | SSH/RDP 输出泵在 ws 写失败后继续运行，重连后自动恢复输出 |
 
 ### 5. PWA 支持
 
@@ -122,15 +124,28 @@ Next Terminal 是一个简单好用安全的开源交互审计系统，支持 RD
 
 | 功能 | 说明 |
 |------|------|
-| 文件选择器 | 路径补全 + 实时搜索 + 键盘导航（Tab/↑↓/Enter/Esc） |
-| 文件预览 | PDF/HTML/Markdown/代码高亮/图片，不依赖 Monaco |
+| 文件选择器 | `Ctrl+Shift+F` 或点击闪电按钮打开，支持 Tab 补全、↓↑ 导航、Enter 预览，相对路径由后端 SFTP RealPath 解析 |
+| 图片预览 | 远程主机图片直接在终端页内预览，不需要打开文件管理器 |
+| PDF 预览 | 在线预览远程主机上的 PDF 文件 |
+| HTML 预览 | 在线预览远程主机上的 HTML 文件 |
+| Markdown 预览 | 在线渲染 Markdown，支持完整语法 |
+| 代码高亮预览 | 代码文本文件语法高亮显示，带行号 |
 | 字号调节 | 9 档字号（11-22px），自动重排并同步远端 |
 | xterm WebGL | GPU 渲染，上下文丢失自动回退 canvas |
 | rAF 节流 | 合并同帧多次 `term.write`，减少 DOM 重绘 |
-| 会话详情 | 在线会话支持查看状态信息（CPU/内存/连接信息） |
+| 终端存活指示器 | 右下角实时显示链路延迟（● XXms），2s 刷新，8s 无响应标记离线 |
+| 终端快捷命令 | 工具栏闪电按钮，点击展开命令菜单，支持点击触发 |
+| 文件拖拽上传 | 文件拖入文件管理区即上传至当前目录 |
 | 回放增强 | SSH 回放支持暂停/倍速/进度跳转 |
 
-### 7. RDP/Guacamole 稳定性
+### 7. 资产管理增强
+
+| 功能 | 说明 |
+|------|------|
+| 资产排序模式 | 工具栏「排序」按钮进入排序模式，整行拖拽调整资产顺序（单步移动语义，服务端事务内完成） |
+| 资产排序模式（移动端） | 移动端卡片列表同样支持排序模式 |
+
+### 8. RDP/Guacamole 稳定性
 
 原版 v1.3.9 的 RDP 连接存在空闲断开和 resize 断开问题。v1.5.0 全面修复。
 
@@ -142,10 +157,15 @@ Next Terminal 是一个简单好用安全的开源交互审计系统，支持 RD
 | 监控端隔离 | 监控写失败只清理自身，不误杀主会话 |
 | guacd TCP_NODELAY | 禁用 Nagle 算法，按键延迟 -40ms |
 | WebSocket Buffer | 4096 → 32768，提升 RDP 大帧吞吐 |
+| WebSocket 压缩 | permessage-deflate 无损压缩，带宽节省 40-50% |
+| WebP 优先 | guacd 优先使用 WebP 编码画面帧，同质量下比 JPEG 小 25-35% |
+| JPEG/WebP 质量优化 | 质量参数从默认 90 调整为 80，肉眼无感知，帧大小 -30% |
+| guacd 读路径单拷贝 | 消除每帧两次全量拷贝 |
+| guacd 僵死自愈 | guacd 写操作 10s 超时 + nop 保活失败自动关闭会话 |
 
 ---
 
-## v1.5.0 性能优化
+## 二、性能优化
 
 原版 v1.3.9 在大数据量下存在性能瓶颈。v1.5.0 进行系统性优化。
 
@@ -154,20 +174,55 @@ Next Terminal 是一个简单好用安全的开源交互审计系统，支持 RD
 | SQLite WAL | `journal_mode(WAL)` + `busy_timeout(5000)` + `foreign_keys(1)`，并发写不再 SQLITE_BUSY |
 | MySQL 连接池 | MaxOpenConns=25, MaxIdleConns=10 |
 | 索引补齐 | 13 个高频索引，`CREATE INDEX IF NOT EXISTS`，启动安全 |
-| GORM 分页修复 | 12 个 repository 的 `Offset/Limit` 在 `Find` 后不生效问题修复（原版 bug） |
+| GORM 分页修复 | 12 个 repository 的 `Offset/Limit` 在 `Find` 后不生效问题修复（原版 bug，分页永不生效、全表加载） |
 | 权限缓存 | `PermissionCache` 5 分钟 TTL，避免每请求三层嵌套循环 |
 | SSH 输出零拷贝 | `WriteMessageBytes` 两段直写，消除多轮全量拷贝 |
 | ws 写路径统一锁 | 所有 ws 写收敛到 `Session.WriteMessage`（锁 + 10s WriteDeadline） |
 | 分批删除日志 | 防 SQLite `SQLITE_MAX_VARIABLE_NUMBER` (32766) 上限 |
+| 批量 SQL 删除 | 清空 10 万条日志由约 30 万次 SQL 降为 1 次 |
 | cron SkipIfStillRunning | 任务执行超一个调度周期不叠加执行 |
 | 前端 lazy loading | 38 个路由组件懒加载，Monitoring prefetch |
 | pro-components 异步 | 84KB ProTable/ProCard 样式从主包迁出异步加载 |
 | 录屏存在性缓存 | 断开会话录屏状态不变，命中缓存跳过磁盘 stat |
 | 网关隧道防泄漏 | Accept 10s deadline 防僵尸连接积累 |
+| Count 单查询 | 首页统计等 9 处计数由「全列 SELECT + COUNT」双查询收敛为单条 COUNT |
+| 首页缓存 | 首页计数/图表加 30-60s 缓存 |
+| 文件管理分页 | 目录表格分页（每页 100 条），数千文件不再全量渲染 |
+| 录屏缓冲写盘 | 录屏文件改为缓冲写出，慢盘不再阻塞终端输出 |
+| TermHandler chunk 读取 | 逐字符读取改为 4KB chunk + 32KB 阈值立即刷新，批量输出延迟 -60ms |
+| HTTP 超时防护 | 请求读取/空闲超时（不影响 WebSocket 与流式下载） |
+| API 请求超时 | 前端 60s 超时兜底，后端慢时不再无限转圈 |
+| 资产状态检测并发限制 | 限制并发连接数，防止大批资产检测时耗尽连接 |
 
 ---
 
-## v1.5.0 安全加固
+## 三、稳定性修复
+
+原版 v1.3.9 存在多个稳定性问题。v1.5.0 逐一修复。
+
+| 修复项 | 说明 |
+|--------|------|
+| 窗口缩放断线 | 调整浏览器窗口时 WebSocket 被误关闭导致 SSH 会话必断 — 连接生命周期与窗口尺寸解耦 |
+| 死观察者卡死 | 监控方网络静默死亡时主会话输出被卡住 — 写超时（10s）后自动剔除观察者 |
+| keepalive 判死清理 | 心跳连续失败判定断开后，会话状态/WebSocket/全局条目完整关闭（此前状态长期显示"已连接"但实际已死） |
+| Shell 任务死锁 | 批量执行 Shell 任务时无缓冲 channel 死锁导致 HTTP 请求永久挂起 |
+| 监控端误杀主会话 | 监控 RDP 会话时监控方异常不再导致被监控主会话被整体关闭 |
+| panic 防护 | 所有关键 goroutine 增加 recover 兜底；guacamole 指令解析增加边界检查 |
+| SQLite 并发写 | 开启 WAL + busy_timeout(5s) + 单连接池，消除并发写 SQLITE_BUSY |
+| 分页失效 | 12 个列表接口 GORM 链式顺序错误导致分页永不生效 — 修复 |
+| 端口筛选计数 | 资产列表按端口筛选时 total 计数错误 — 修复 |
+| 首页计数归零 | GORM Count 失去表推断导致 9 个计数辅助函数静默失败 — 修复 |
+| 监控面板白屏 | Stats 面板 API 失败时合并默认值渲染，不再崩溃 |
+| SSH 输出 BinaryMessage | SSH 输出改用 WebSocket BinaryMessage，根除 1002 断开 |
+| xterm 实例泄漏 | 终端页/监控页卸载时正确 dispose xterm 实例 |
+| RDP 隧道泄漏 | RDP 页面卸载时断开 Guacamole 隧道 |
+| 查询缓存 key 冲突 | 编辑弹窗不再闪现错误类型/过期数据 |
+| 监控页断线感知 | 网络断开时页面明确提示，不再静默冻结 |
+| 轮询重试抑制 | 后端异常时监控页不再产生错误提示风暴 |
+
+---
+
+## 四、安全加固
 
 | 安全项 | 说明 |
 |--------|------|
@@ -175,20 +230,30 @@ Next Terminal 是一个简单好用安全的开源交互审计系统，支持 RD
 | trusted-proxies | 反代部署时配置可信代理网段，正确解析 X-Forwarded-For |
 | Sourcemap 剔除 | Dockerfile 构建时删除 `.map` 文件，防止前端源码通过 `/static/*` 泄露 |
 | 凭证清理 | `DisDBSess` 断开时清空 password/privateKey 为 `-` |
-| SSH 加密套件 | chacha20 优先，兼容无 AES-NI 的 CPU |
+| SSH 加密套件 | chacha20-poly1305 优先，兼容无 AES-NI 的 CPU |
 | SSH Server Keepalive | 每 30s 发 `keepalive@openssh.com`，检测僵死连接 |
+| Guacd 主路径归属校验 | 修复任何登录用户凭会话ID可建隧道的越权面 |
+| SSH 监控归属校验 | 非管理员仅可监控本人会话 |
+| 会话条目防泄漏 | 同名会话重复添加时先关闭旧条目 |
+| 会话统计归属校验 | 非管理员仅可拉取本人会话的远端主机统计 |
+| Security Manager 读写锁 | 并发安全保护 |
+| PKCS5UnPadding 边界检查 | 空数据和损坏数据防 panic |
+| 登录策略优先级 | 多条匹配时改为最高优先级生效 |
 
 ---
 
-## v1.5.0 代码质量改进
+## 五、代码质量改进
 
 | 改进项 | 说明 |
 |--------|------|
 | goroutine recover 兜底 | 10+ 处关键 goroutine 加 defer recover + 日志，单点 panic 不击穿进程 |
 | Instruction.Parse 边界检查 | 畸形帧返回 error，此前 `lm[1]` 越界 panic |
-| 观察者写 deadline | 观察者写失败（10s deadline）立即从 map 移除，防死观察者卡主输出 |
+| 观察者写 deadline | 观察者写失败（10s deadline）立即从 map 移除 |
 | 关闭链分段锁 | `CloseSessionById` 临界区只保留内存操作，DB 写在锁外 |
-| SSH stdin 不缓冲 | `NextTerminal.Write()` 直接写 pipe，不禁 bufio（交互路径不缓冲原则） |
+| SSH stdin 不缓冲 | `NextTerminal.Write()` 直接写 pipe，不禁 bufio |
+| 死代码清理 | 移除未使用的 `Pbkdf2` 函数及依赖、62 行注释代码、16 处 console.log |
+| 去重 | nop 保活提取为公共函数 `startNopKeepalive` |
+| 资源句柄修复 | 上传文件句柄 Close、SOCKS5 连接失败路径关闭 TCP、Term 组件 pingInterval 清理 |
 
 ---
 
