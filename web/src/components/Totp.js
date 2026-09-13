@@ -30,7 +30,7 @@ const Totp = () => {
         if (!qr) {
             return undefined;
         }
-        return <Form hidden={!totp.qr} onFinish={confirmTOTP}>
+        return <Form scrollToFirstError hidden={!totp.qr} onFinish={confirmTOTP}>
             <Form.Item label="二维码"
                        extra={'有效期30秒，在扫描后请尽快输入。推荐使用Google Authenticator, Authy 或者 Microsoft Authenticator。'}>
                 <Space size={12} direction='horizontal'>
@@ -71,7 +71,7 @@ const Totp = () => {
     return (
         <div>
             <Title level={4}>双因素认证</Title>
-            <Form hidden={totp.qr}>
+            <Form scrollToFirstError hidden={totp.qr}>
                 <Form.Item>
                     {
                         infoQuery.data?.enableTotp ?

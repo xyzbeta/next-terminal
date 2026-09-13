@@ -18,3 +18,33 @@
     margin-left: -175px;
     margin-top: -189px;
 }
+
+/* Mobile: flex centering replaces the absolute negative-margin positioning */
+/* 断点说明：必须与 utils/window.js 的 MOBILE_MEDIA_QUERY、mobile.css 的移动端媒体查询保持同步
+   （含横屏手机的 (pointer: coarse) and (max-height: 500px) 条件）
+   （CSS 媒体查询无法使用 var()，只能靠注释交叉引用）。
+   移动端规则刻意保留在 Login.css 而不迁入 mobile.css：Login 是 React.lazy 懒加载组件，
+   其样式以独立 chunk 在 mobile.css 之后注入，同优先级下会覆盖 mobile.css ——
+   一旦迁移，这些移动端覆盖（尤其 position: static）将失效。 */
+@media (max-width: 768px), (pointer: coarse) and (max-height: 500px) {
+    .login-page {
+        display: flex;
+        justify-content: center;
+        /* 卡片在此断点改为 position: static 后成为 flex item，
+           容器默认 align-items: stretch 会把卡片从 8vh 一路拉伸到底部（整屏空白大卡），
+           flex-start 让卡片按内容高度收缩 */
+        align-items: flex-start;
+    }
+
+    .login-card {
+        position: static;
+        width: calc(100vw - 32px);
+        max-width: 350px;
+        margin: 8vh auto 0;
+    }
+
+    .login-form {
+        min-width: auto;
+        max-width: 100%;
+    }
+}

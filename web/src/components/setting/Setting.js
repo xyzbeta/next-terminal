@@ -1,10 +1,11 @@
 import React, {Component} from 'react';
+import {setThemePref, getThemePref} from "../../utils/theme";
 import {Alert, Button, Form, Input, message, Select, Space, Switch, Tabs, Typography} from "antd";
+import {LeftOutlined, RightOutlined} from "@ant-design/icons";
 import request from "../../common/request";
 import {download, getToken} from "../../utils/utils";
 import {server} from "../../common/env";
-import {GetLicense, GetMachineId} from "../../api/license";
-import dayjs from "dayjs";
+import {isMobileNow, subscribeIsMobile} from "../../hook/use-breakpoint";
 
 const {Option} = Select;
 const {TabPane} = Tabs;
@@ -20,17 +21,16 @@ const formTailLayout = {
     wrapperCol: {span: 12},
 };
 
+const TAB_KEYS = ['rdp', 'telnet', 'vnc', 'guacd', 'mail', 'log', 'other', 'backup'];
+const TAB_LABELS = ['RDP配置', 'TELNET配置', 'VNC配置', '录屏配置', '邮箱配置', '日志配置', '其他配置', '备份与恢复'];
 class Setting extends Component {
 
     state = {
+        isMobile: isMobileNow(),
+        activeTab: 'rdp',
         refs: [],
         properties: {},
         ldapUserSyncLoading: false,
-        license: {
-            name: '免费版',
-            expired: undefined
-        },
-        machineId: ''
     }
 
     rdpSettingFormRef = React.createRef();
@@ -41,7 +41,19 @@ class Setting extends Component {
     logSettingFormRef = React.createRef();
     otherSettingFormRef = React.createRef();
 
+    componentWillUnmount() {
+        if (this.unsubscribeBreakpoint) {
+            this.unsubscribeBreakpoint();
+            this.unsubscribeBreakpoint = null;
+        }
+    }
+
     componentDidMount() {
+        // 订阅断点变化：旋屏时 Tab 栏需要从左侧切到顶部
+        this.unsubscribeBreakpoint = subscribeIsMobile((isMobile) => {
+            this.setState({isMobile});
+        });
+
         // eslint-disable-next-line no-extend-native
         String.prototype.bool = function () {
             return (/^true$/i).test(this);
@@ -102,30 +114,8 @@ class Setting extends Component {
     }
 
     handleOnTabChange = (key) => {
-        if (key === 'license') {
-            this.getMachineId();
-            this.getLicense();
-        } else {
-            this.getProperties();
-        }
+        this.getProperties();
     }
-
-    getLicense = async () => {
-        let data = await GetLicense();
-        if (data) {
-            this.setState({
-                license: data
-            })
-        }
-    }
-
-    getMachineId = async () => {
-        let data = await GetMachineId();
-        this.setState({
-            machineId: data
-        })
-    }
-
     handleImport = () => {
         let files = window.document.getElementById('file-upload').files;
         if (files.length === 0) {
@@ -175,79 +165,57 @@ class Setting extends Component {
         }
     }
 
-    handleImportLicense = () => {
-        let files = window.document.getElementById('import-license').files;
-        if (files.length === 0) {
-            return;
-        }
-        let file = files[0];
-        const reader = new FileReader();
-        reader.onload = async () => {
-            // 当读取完成时，内容只在`reader.result`中
-            let license = reader.result;
-            let result = await request.post('/license', {'license': license});
-            if (result['code'] !== 1) {
-                message.error(result['message']);
-            } else {
-                this.getLicense();
-            }
-        };
-        reader.readAsText(file, 'utf-8');
-    }
-
     render() {
 
-        const renderType = (type) => {
-            switch (type) {
-                case 'free':
-                    return '企业版';
-                case 'test':
-                    return '测试版';
-                case 'vip':
-                    return '会员版';
-                case 'pro':
-                    return '专业版';
-                case 'enterprise':
-                    return '企业版';
-                default:
-                    return type;
-            }
-        }
-
-        const renderCount = (count) => {
-            if (count <= 0) {
-                return '无限制';
-            }
-            return count;
-        }
-
-        const renderTime = (time) => {
-            if (!time) {
-                return '-';
-            }
-            if (time < 0) {
-                return '永久授权';
-            }
-            let suffix = '';
-            let color = '';
-            if (new Date().getTime() > time * 1000) {
-                suffix = <span style={{color: 'red'}}>已过期</span>;
-                color = 'red';
-            } else {
-                suffix = <span style={{color: 'green'}}>正常可用</span>;
-                color = 'green';
-            }
-            return <>
-                <span style={{color: color}}>{dayjs.unix(time).format('YYYY-MM-DD HH:mm:ss')}</span>
-                &nbsp;{suffix}
-            </>;
-        }
+        const tabIndex = TAB_KEYS.indexOf(this.state.activeTab);
 
         return (
             <div className="page-container-white">
-                <Tabs tabPosition={'left'} onChange={this.handleOnTabChange} tabBarStyle={{width: 150}}>
+                {this.state.isMobile && (
+                    <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12}}>
+                        <Button
+                            icon={<LeftOutlined/>}
+                            disabled={tabIndex <= 0}
+                            onClick={() => {
+                                const prev = TAB_KEYS[tabIndex - 1];
+                                this.setState({activeTab: prev});
+                                this.handleOnTabChange(prev);
+                            }}
+                            style={{flex: '0 0 auto'}}
+                        />
+                        <Select
+                            value={this.state.activeTab}
+                            onChange={(key) => {
+                                this.setState({activeTab: key});
+                                this.handleOnTabChange(key);
+                            }}
+                            style={{flex: 1}}
+                        >
+                            {TAB_KEYS.map((k, i) => (
+                                <Option key={k} value={k}>{TAB_LABELS[i]}</Option>
+                            ))}
+                        </Select>
+                        <Button
+                            icon={<RightOutlined/>}
+                            disabled={tabIndex >= TAB_KEYS.length - 1}
+                            onClick={() => {
+                                const next = TAB_KEYS[tabIndex + 1];
+                                this.setState({activeTab: next});
+                                this.handleOnTabChange(next);
+                            }}
+                            style={{flex: '0 0 auto'}}
+                        />
+                    </div>
+                )}
+                <Tabs tabPosition={this.state.isMobile ? 'top' : 'left'}
+                      activeKey={this.state.activeTab}
+                      onChange={(key) => {
+                          this.setState({activeTab: key});
+                          this.handleOnTabChange(key);
+                      }}
+                      tabBarStyle={this.state.isMobile ? {display: 'none'} : {width: 150}}>
                     <TabPane tab="RDP配置" key="rdp">
-                        <Form ref={this.rdpSettingFormRef} name="rdp" onFinish={this.changeProperties}
+                        <Form scrollToFirstError ref={this.rdpSettingFormRef} name="rdp" onFinish={this.changeProperties}
                               layout="vertical">
 
                             <Title level={4}>RDP配置(远程桌面)</Title>
@@ -366,7 +334,7 @@ class Setting extends Component {
                         </Form>
                     </TabPane>
                     <TabPane tab="TELNET配置" key="telnet">
-                        <Form ref={this.sshSettingFormRef} name="ssh" onFinish={this.changeProperties}
+                        <Form scrollToFirstError ref={this.sshSettingFormRef} name="ssh" onFinish={this.changeProperties}
                               layout="vertical">
 
                             <Title level={4}>TELNET配置</Title>
@@ -457,7 +425,7 @@ class Setting extends Component {
                         </Form>
                     </TabPane>
                     <TabPane tab="VNC配置" key="vnc">
-                        <Form ref={this.vncSettingFormRef} name="vnc" onFinish={this.changeProperties}
+                        <Form scrollToFirstError ref={this.vncSettingFormRef} name="vnc" onFinish={this.changeProperties}
                               layout="vertical">
 
                             <Title level={4}>VNC配置</Title>
@@ -524,7 +492,7 @@ class Setting extends Component {
                     </TabPane>
                     <TabPane tab="录屏配置" key="guacd">
                         <Title level={4}>录屏配置</Title>
-                        <Form ref={this.guacdSettingFormRef} name="guacd" onFinish={this.changeProperties}
+                        <Form scrollToFirstError ref={this.guacdSettingFormRef} name="guacd" onFinish={this.changeProperties}
                               layout="vertical">
 
                             <Form.Item
@@ -577,7 +545,7 @@ class Setting extends Component {
                             type="info"
                             style={{marginBottom: 10}}
                         />
-                        <Form ref={this.mailSettingFormRef} name='mail' onFinish={this.changeProperties}
+                        <Form scrollToFirstError ref={this.mailSettingFormRef} name='mail' onFinish={this.changeProperties}
                               layout="vertical">
 
                             <Form.Item
@@ -650,7 +618,7 @@ class Setting extends Component {
 
                     <TabPane tab="日志配置" key="log">
                         <Title level={4}>日志配置</Title>
-                        <Form ref={this.logSettingFormRef} name="log" onFinish={this.changeProperties}
+                        <Form scrollToFirstError ref={this.logSettingFormRef} name="log" onFinish={this.changeProperties}
                               layout="vertical">
 
                             <Form.Item
@@ -683,6 +651,21 @@ class Setting extends Component {
                                 </Select>
                             </Form.Item>
 
+                            <Form.Item
+                                {...formItemLayout}
+                                name="storage-log-saved-limit"
+                                label="存储日志保留时长"
+                                initialValue=""
+                            >
+                                <Select onChange={null}>
+                                    <Option value="">永久</Option>
+                                    <Option value="30">30天</Option>
+                                    <Option value="60">60天</Option>
+                                    <Option value="180">180天</Option>
+                                    <Option value="360">360天</Option>
+                                </Select>
+                            </Form.Item>
+
                             <Form.Item {...formTailLayout}>
                                 <Button type="primary" htmlType="submit">
                                     更新
@@ -692,7 +675,7 @@ class Setting extends Component {
                     </TabPane>
                     <TabPane tab="其他配置" key="other">
                         <Title level={4}>其他配置</Title>
-                        <Form ref={this.otherSettingFormRef} name="other" onFinish={this.changeProperties}
+                        <Form scrollToFirstError ref={this.otherSettingFormRef} name="other" onFinish={this.changeProperties}
                               layout="vertical">
 
                             <Form.Item
@@ -702,6 +685,37 @@ class Setting extends Component {
                                 tooltip='无限制请填写-1'
                             >
                                 <Input type={'number'} min={-1} suffix="MB"/>
+                            </Form.Item>
+
+                            <Form.Item
+                                {...formItemLayout}
+                                name="keep-alive-ttl"
+                                label="会话保持清理时长"
+                                tooltip='启用「会话保持」的会话断开后，远端 tmux 会话保留多久再被自动清理（防止无人认领的进程泄漏）。-1 表示永久保留不清理'
+                            >
+                                <Select>
+                                    <Option value="24">24小时（默认）</Option>
+                                    <Option value="1">1小时</Option>
+                                    <Option value="6">6小时</Option>
+                                    <Option value="72">72小时</Option>
+                                    <Option value="-1">永久保留</Option>
+                                </Select>
+                            </Form.Item>
+
+                            <Form.Item
+                                {...formItemLayout}
+                                name="appearance"
+                                label="外观"
+                                tooltip='iOS 标准：默认跟随系统外观（浅色/深色），可手动覆盖'
+                            >
+                                <Select
+                                    defaultValue={getThemePref()}
+                                    onChange={(v) => setThemePref(v)}
+                                >
+                                    <Option value="auto">跟随系统</Option>
+                                    <Option value="light">浅色</Option>
+                                    <Option value="dark">深色</Option>
+                                </Select>
                             </Form.Item>
 
                             <Form.Item {...formTailLayout}>

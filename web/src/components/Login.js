@@ -8,6 +8,7 @@ import brandingApi from "../api/branding";
 import strings from "../utils/strings";
 import {useNavigate} from "react-router-dom";
 import {setCurrentUser} from "../service/permission";
+import queryClient from "../service/query-client";
 import PromptModal from "../dd/prompt-modal/prompt-modal";
 
 const {Title, Text} = Typography;
@@ -35,6 +36,14 @@ const LoginForm = () => {
         sessionStorage.removeItem('current');
         sessionStorage.removeItem('openKeys');
         setToken(data['token']);
+
+        // 清空所有 react-query 缓存。
+        //
+        // 必须在这里清，而不是只在「退出登录」时清：进入登录页的路径不止一条
+        // （主动退出、会话过期被 401 踢回、双因素认证中断），漏掉任何一条都会让
+        // 上一个账号的用户信息/资产/会话数据留在内存缓存里，被下一个登录的账号
+        // 直接读出来（staleTime 5 分钟内不会重新请求）——既是显示错误，也是数据泄露。
+        queryClient.clear();
 
         let user = data['info'];
         setCurrentUser(user);
@@ -89,13 +98,13 @@ const LoginForm = () => {
     };
 
     return (
-        <div style={{width: '100vw', height: '100vh', backgroundColor: '#fafafa'}}>
+        <div className='login-page' style={{width: '100vw', height: '100vh', backgroundColor: '#fafafa'}}>
             <Card className='login-card' title={null}>
                 <div style={{textAlign: "center", margin: '15px auto 30px auto', color: '#1890ff'}}>
                     <Title level={1}>{branding['name']}</Title>
                     <Text>{branding['description']}</Text>
                 </div>
-                <Form onFinish={handleSubmit} className="login-form">
+                <Form scrollToFirstError onFinish={handleSubmit} className="login-form">
                     <Form.Item name='username' rules={[{required: true, message: '请输入登录账号！'}]}>
                         <Input prefix={<UserOutlined/>} placeholder="登录账号"/>
                     </Form.Item>

@@ -2,11 +2,14 @@ import React, {useState} from 'react';
 import {Button, Form, Input, Layout, message, Tabs, Typography} from "antd";
 import accountApi from "../api/account";
 import Totp from "./Totp";
+import {useIsMobile} from "../hook/use-breakpoint";
 
 const {Content} = Layout;
 const {Title} = Typography;
 
 const Info = () => {
+
+    const isMobile = useIsMobile();
 
     let [newPassword1, setNewPassword1] = useState('');
     let [newPassword2, setNewPassword2] = useState('');
@@ -46,11 +49,12 @@ const Info = () => {
     return (
         <>
             <Content className={'page-container-white'}>
-                <Tabs className={'info-tab'} tabPosition={'left'} tabBarStyle={{width: 150}}>
+                <Tabs className={'info-tab'} tabPosition={isMobile ? 'top' : 'left'}
+                      tabBarStyle={isMobile ? undefined : {width: 150}}>
                     <Tabs.TabPane tab="修改密码" key="change-password">
                         <Title level={4}>修改密码</Title>
                         <div style={{margin: 16}}></div>
-                        <Form name="password" onFinish={changePassword}>
+                        <Form scrollToFirstError name="password" onFinish={changePassword}>
                             <input type='password' hidden={true} autoComplete='new-password'/>
                             <Form.Item
                                 name="oldPassword"
