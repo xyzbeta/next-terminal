@@ -54,7 +54,11 @@ const (
 	StatusEnabled  = "enabled"
 	StatusDisabled = "disabled"
 
-	SocksProxyEnable   = "socks-proxy-enable"
+	SocksProxyEnable = "socks-proxy-enable"
+	// KeepAlive 会话保持（tmux）：资产属性开关，true = 断线后任务继续
+	KeepAlive = "keep-alive"
+	// KeepAliveTTL 全局属性：keep 会话断开后保留 tmux 的小时数，<=0 表示永久保留
+	KeepAliveTTL       = "keep-alive-ttl"
 	SocksProxyHost     = "socks-proxy-host"
 	SocksProxyPort     = "socks-proxy-port"
 	SocksProxyUsername = "socks-proxy-username"

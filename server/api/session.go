@@ -10,6 +10,7 @@ import (
 	"next-terminal/server/common"
 	"next-terminal/server/common/maps"
 	"next-terminal/server/common/nt"
+	"next-terminal/server/common/term"
 	"next-terminal/server/global/session"
 	"next-terminal/server/log"
 	"next-terminal/server/model"
@@ -158,7 +159,29 @@ func (api SessionApi) SessionDisconnectEndpoint(c echo.Context) error {
 
 	split := strings.Split(sessionIds, ",")
 	for i := range split {
+		// 会话保持（tmux）分层语义：管理员强断 = 真正终止远端任务。
+		// 连接还活着时先发 kill-session（关闭链随后才断开 SSH）；连接已死
+		// （宽限期内的 Detached 会话）时无法执行，由后续 TTL 清理任务兜底。
+		if s := session.GlobalSessionManager.GetById(split[i]); s != nil &&
+			s.NextTerminal != nil && s.NextTerminal.Keep {
+			// 独立 channel 执行（不能复用主数据会话——它已 Start，Run 会报 session already started）
+			if err := term.KillTmux(s.NextTerminal.SshClient, split[i]); err != nil {
+				log.Warn("强断时终止 tmux 会话失败", log.String("sessionId", split[i]), log.NamedError("err", err))
+			}
+		}
 		service.SessionService.CloseSessionById(split[i], ForcedDisconnect, "管理员强制关闭了此会话")
+	}
+	return Success(c, nil)
+}
+
+// SessionCleanupKeepAliveEndpoint 手动清理已断开的 keep-alive 会话：
+// 用资产凭证 SSH 上去 kill tmux，然后删除会话记录。
+// 不等 24h TTL，用户主动回收。
+func (api SessionApi) SessionCleanupKeepAliveEndpoint(c echo.Context) error {
+	sessionId := c.Param("id")
+	err := service.SessionService.CleanupKeepAliveSession(sessionId)
+	if err != nil {
+		return err
 	}
 	return Success(c, nil)
 }
@@ -214,10 +237,45 @@ func (api SessionApi) SessionCreateEndpoint(c echo.Context) error {
 	})
 }
 
+// checkSessionOwner 校验调用者是否有权操作该会话的文件系统。
+//
+// 为什么必须在这里做：middleware/auth.go 的 allowUrls 已把这些会话文件端点从
+// RBAC 菜单权限中显式放行（它们不在任何菜单下，靠会话归属自身定权），
+// 因此 handler 内的归属判定是唯一防线。
+//
+// 判定基准是「调用者」而非「会话创建时的策略位」——端点内已有的
+// `s.Download != "1"` 之类的检查只说明「该会话被允许下载」，不代表
+// 「当前调用者有权操作这个会话」，两者是不同维度，缺一不可。
+func checkSessionOwner(c echo.Context, s model.Session) error {
+	user, found := GetCurrentAccount(c)
+	if !found || user == nil {
+		return Fail(c, -1, "您的登录信息已失效，请重新登录后再试。")
+	}
+	if user.Type != nt.TypeAdmin && user.ID != s.Creator {
+		return Fail(c, -1, "无权限访问此会话")
+	}
+	return nil
+}
+
+// hasParentDirSegment 判断路径中是否包含 ".." 层级（路径穿越）
+// 按 "/" 分段精确匹配，避免误伤含连续点号的正常文件名（如 a..b.txt）
+func hasParentDirSegment(p string) bool {
+	for _, segment := range strings.Split(p, "/") {
+		if segment == ".." {
+			return true
+		}
+	}
+	return false
+}
+
 func (api SessionApi) SessionUploadEndpoint(c echo.Context) error {
 	sessionId := c.Param("id")
 	s, err := repository.SessionRepository.FindById(context.TODO(), sessionId)
 	if err != nil {
+		return err
+	}
+	// 会话归属校验：非管理员仅可操作本人创建的会话（附带执行目标机文件操作，防越权）
+	if err := checkSessionOwner(c, s); err != nil {
 		return err
 	}
 	if s.Upload != "1" {
@@ -249,7 +307,21 @@ func (api SessionApi) SessionUploadEndpoint(c echo.Context) error {
 			return errors.New("获取会话失败")
 		}
 
-		sftpClient := nextSession.NextTerminal.SftpClient
+		// 走 GetSftpClient：直接读字段会绕过懒初始化锁，可能拿到未初始化的 nil
+		sftpClient, err := nextSession.NextTerminal.GetSftpClient()
+		if err != nil {
+			return err
+		}
+
+		// 路径安全校验：拒绝 ".." 上级目录引用，防止越出会话工作目录写入文件
+		// dir 取自 URL 查询参数，Echo 的 QueryParam 已完成 URL 解码（%2e%2e 同样还原为 ..），此处按解码后的值判断即可
+		// 注：绝对路径不拦截——会话文件管理器以 / 为起点浏览并上传到当前绝对目录，属既有合法用法，
+		// 其可写范围由 SFTP 登录账号自身的系统权限约束
+		if hasParentDirSegment(remoteDir) || hasParentDirSegment(remoteFile) {
+			log.Warn("上传路径非法：包含上级目录引用", log.String("sessionId", sessionId), log.String("dir", remoteDir), log.String("file", remoteFile))
+			return errors.New("非法请求：路径中禁止包含 ..")
+		}
+
 		// 文件夹不存在时自动创建文件夹
 		if _, err := sftpClient.Stat(remoteDir); os.IsNotExist(err) {
 			if err := sftpClient.MkdirAll(remoteDir); err != nil {
@@ -289,6 +361,10 @@ func (api SessionApi) SessionEditEndpoint(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	// 会话归属校验：非管理员仅可操作本人创建的会话（附带执行目标机文件操作，防越权）
+	if err := checkSessionOwner(c, s); err != nil {
+		return err
+	}
 	if s.Edit != "1" {
 		return errors.New("禁止操作")
 	}
@@ -301,7 +377,11 @@ func (api SessionApi) SessionEditEndpoint(c echo.Context) error {
 			return errors.New("获取会话失败")
 		}
 
-		sftpClient := nextSession.NextTerminal.SftpClient
+		// 走 GetSftpClient：直接读字段会绕过懒初始化锁，可能拿到未初始化的 nil
+		sftpClient, err := nextSession.NextTerminal.GetSftpClient()
+		if err != nil {
+			return err
+		}
 		dstFile, err := sftpClient.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
 		if err != nil {
 			return err
@@ -337,6 +417,10 @@ func (api SessionApi) SessionDownloadEndpoint(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	// 会话归属校验：非管理员仅可操作本人创建的会话（附带执行目标机文件操作，防越权）
+	if err := checkSessionOwner(c, s); err != nil {
+		return err
+	}
 	if s.Download != "1" {
 		return errors.New("禁止操作")
 	}
@@ -354,7 +438,11 @@ func (api SessionApi) SessionDownloadEndpoint(c echo.Context) error {
 			return errors.New("获取会话失败")
 		}
 
-		dstFile, err := nextSession.NextTerminal.SftpClient.Open(file)
+		sftpClient, err := nextSession.NextTerminal.GetSftpClient()
+		if err != nil {
+			return err
+		}
+		dstFile, err := sftpClient.Open(file)
 		if err != nil {
 			log.Warn("文件预览 SFTP 打开失败", log.String("sessionId", sessionId), log.String("file", file), log.NamedError("err", err))
 			return err
@@ -379,6 +467,10 @@ func (api SessionApi) SessionPreviewEndpoint(c echo.Context) error {
 	sessionId := c.Param("id")
 	s, err := repository.SessionRepository.FindById(context.TODO(), sessionId)
 	if err != nil {
+		return err
+	}
+	// 会话归属校验：非管理员仅可操作本人创建的会话（附带执行目标机文件操作，防越权）
+	if err := checkSessionOwner(c, s); err != nil {
 		return err
 	}
 	if s.Download != "1" {
@@ -445,6 +537,10 @@ func (api SessionApi) SessionLsEndpoint(c echo.Context) error {
 	sessionId := c.Param("id")
 	s, err := service.SessionService.FindByIdAndDecrypt(context.TODO(), sessionId)
 	if err != nil {
+		return err
+	}
+	// 会话归属校验：非管理员仅可列出本人会话的目标机目录（防越权探测）
+	if err := checkSessionOwner(c, s); err != nil {
 		return err
 	}
 
@@ -536,6 +632,10 @@ func (api SessionApi) SessionMkDirEndpoint(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	// 会话归属校验：非管理员仅可操作本人创建的会话（附带执行目标机文件操作，防越权）
+	if err := checkSessionOwner(c, s); err != nil {
+		return err
+	}
 	if s.Upload != "1" {
 		return errors.New("禁止操作")
 	}
@@ -550,7 +650,11 @@ func (api SessionApi) SessionMkDirEndpoint(c echo.Context) error {
 		if nextSession == nil {
 			return errors.New("获取会话失败")
 		}
-		if err := nextSession.NextTerminal.SftpClient.Mkdir(remoteDir); err != nil {
+		sftpClient, err := nextSession.NextTerminal.GetSftpClient()
+		if err != nil {
+			return err
+		}
+		if err := sftpClient.Mkdir(remoteDir); err != nil {
 			return err
 		}
 		return Success(c, nil)
@@ -570,6 +674,10 @@ func (api SessionApi) SessionRmEndpoint(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	// 会话归属校验：非管理员仅可操作本人创建的会话（附带执行目标机文件操作，防越权）
+	if err := checkSessionOwner(c, s); err != nil {
+		return err
+	}
 	if s.Delete != "1" {
 		return errors.New("禁止操作")
 	}
@@ -586,7 +694,11 @@ func (api SessionApi) SessionRmEndpoint(c echo.Context) error {
 			return errors.New("获取会话失败")
 		}
 
-		sftpClient := nextSession.NextTerminal.SftpClient
+		// 走 GetSftpClient：直接读字段会绕过懒初始化锁，可能拿到未初始化的 nil
+		sftpClient, err := nextSession.NextTerminal.GetSftpClient()
+		if err != nil {
+			return err
+		}
 
 		stat, err := sftpClient.Stat(file)
 		if err != nil {
@@ -632,6 +744,10 @@ func (api SessionApi) SessionRenameEndpoint(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	// 会话归属校验：非管理员仅可操作本人创建的会话（附带执行目标机文件操作，防越权）
+	if err := checkSessionOwner(c, s); err != nil {
+		return err
+	}
 	if s.Rename != "1" {
 		return errors.New("禁止操作")
 	}
@@ -648,7 +764,11 @@ func (api SessionApi) SessionRenameEndpoint(c echo.Context) error {
 			return errors.New("获取会话失败")
 		}
 
-		sftpClient := nextSession.NextTerminal.SftpClient
+		// 走 GetSftpClient：直接读字段会绕过懒初始化锁，可能拿到未初始化的 nil
+		sftpClient, err := nextSession.NextTerminal.GetSftpClient()
+		if err != nil {
+			return err
+		}
 
 		if err := sftpClient.Rename(oldName, newName); err != nil {
 			return err

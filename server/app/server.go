@@ -41,6 +41,17 @@ func WrapHandler(h http.Handler) echo.HandlerFunc {
 	}
 }
 
+// WrapHandlerNoCache 与 WrapHandler 相同，但不允许缓存。
+// manifest 与 Service Worker 必须每次回源校验：文件名固定且无 hash，
+// 一旦被长缓存，更新后浏览器会长期沿用旧副本（旧 SW 尤其严重——它会持续接管页面）。
+func WrapHandlerNoCache(h http.Handler) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		c.Response().Header().Set("Cache-Control", `no-cache, must-revalidate`)
+		h.ServeHTTP(c.Response(), c.Request())
+		return nil
+	}
+}
+
 func setupRoutes() *echo.Echo {
 
 	e := echo.New()
@@ -51,10 +62,22 @@ func setupRoutes() *echo.Echo {
 	fsys := getFS(config.GlobalCfg.Debug)
 	fileServer := http.FileServer(http.FS(fsys))
 	handler := WrapHandler(fileServer)
-	e.GET("/", handler)
+	noCache := WrapHandlerNoCache(fileServer)
+	// 根路径返回 index.html，文件名不含 hash 且内容是「指向 main.<hash>.js 的入口」，
+	// 必须与 manifest/sw.js 一样禁止缓存：否则发版后浏览器会沿用旧 index.html，
+	// 其引用的旧 hash chunk 已从新二进制中消失 → 404 → 白屏，直到用户强刷。
+	e.GET("/", noCache)
 	e.GET("/branding", api.Branding)
 	e.GET("/favicon.ico", handler)
 	e.GET("/static/*", handler)
+	// PWA 资源：manifest 与 Service Worker 必须位于根路径且可匿名访问，
+	// 否则浏览器无法安装应用、也无法注册 SW（sw.js 的 scope 受其路径限制）。
+	e.GET("/manifest.json", noCache)
+	e.GET("/sw.js", noCache)
+	e.GET("/pwa-192x192.png", handler)
+	e.GET("/pwa-512x512.png", handler)
+	e.GET("/pwa-maskable-512x512.png", handler)
+	e.GET("/antd.dark.css", noCache)
 
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
@@ -98,6 +121,7 @@ func setupRoutes() *echo.Echo {
 	AuthorisedApi := new(api.AuthorisedApi)
 
 	e.POST("/login", accountApi.LoginEndpoint)
+
 
 	account := e.Group("/account")
 	{
@@ -201,6 +225,7 @@ func setupRoutes() *echo.Echo {
 		sessions.GET("/paging", mw.Admin(SessionApi.SessionPagingEndpoint))
 		sessions.POST("/:id/disconnect", mw.Admin(SessionApi.SessionDisconnectEndpoint))
 		sessions.DELETE("/:id", mw.Admin(SessionApi.SessionDeleteEndpoint))
+		sessions.POST("/:id/cleanup", mw.Admin(SessionApi.SessionCleanupKeepAliveEndpoint))
 		sessions.GET("/:id/recording", mw.Admin(SessionApi.SessionRecordingEndpoint))
 		sessions.GET("/:id", mw.Admin(SessionApi.SessionGetEndpoint))
 		sessions.POST("/:id/reviewed", mw.Admin(SessionApi.SessionReviewedEndpoint))

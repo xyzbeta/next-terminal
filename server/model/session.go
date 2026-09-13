@@ -27,7 +27,10 @@ type Session struct {
 	DisconnectedTime common.JsonTime `json:"disconnectedTime"`
 
 	Mode            string `gorm:"type:varchar(10)" json:"mode"`
-	FileSystem      string `gorm:"type:varchar(1)" json:"fileSystem"` // 1 = true, 0 = false
+	KeepAlive       string `gorm:"type:varchar(1)" json:"keepAlive"`    // 1 = 启用 tmux 会话保持（断开后任务继续，重连 attach）
+	ClientType      string `gorm:"type:varchar(10)" json:"clientType"`  // mobile / desktop：连接来源，用于列表中区分是谁的设备
+	ClientName      string `gorm:"type:varchar(100)" json:"clientName"` // 设备名称（UA 解析，如「iPhone · Safari 17」），多设备并存时区分具体是哪台
+	FileSystem      string `gorm:"type:varchar(1)" json:"fileSystem"`   // 1 = true, 0 = false
 	Upload          string `gorm:"type:varchar(1)" json:"upload"`
 	Download        string `gorm:"type:varchar(1)" json:"download"`
 	Delete          string `gorm:"type:varchar(1)" json:"delete"`
@@ -69,6 +72,8 @@ type SessionForPage struct {
 	Mode             string          `json:"mode"`
 	Reviewed         bool            `json:"reviewed"`
 	CommandCount     int64           `json:"commandCount"`
+	KeepAlive        string          `json:"keepAlive"`
+	ClientName       string          `json:"clientName"`
 }
 
 type SessionForAccess struct {

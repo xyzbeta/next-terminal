@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"next-terminal/server/common/nt"
+	"next-terminal/server/common/term"
 	"os"
-	"path"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	"next-terminal/server/common"
@@ -64,39 +67,87 @@ func (service sessionService) ClearOfflineSession() error {
 	return service.DeleteByIds(context.TODO(), sessionIds)
 }
 
+// safeRecordingPath 把会话 ID 解析为录屏目录下的路径，拒绝任何逃出录屏根的输入。
+//
+// 必要性：sessionIds 直接来自 URL（DELETE /sessions/:id 支持逗号分隔的多个 ID），
+// 未做过存在性校验。id 为 ".." 时 path.Join(recordingPath, "..") 会归一化为
+// 录屏目录的父目录——默认配置下即 data/，其中包含 SQLite 数据库文件与 drive 存储，
+// 一次 os.RemoveAll 就会连库一起删掉。
+//
+// 正常会话 ID 由 utils.UUID() 生成，不含路径分隔符，故这里做的是防御性校验。
+func safeRecordingPath(recordingPath, sessionId string) (string, bool) {
+	if sessionId == "" || strings.ContainsAny(sessionId, `/\`) {
+		return "", false
+	}
+	base := filepath.Clean(recordingPath)
+	target := filepath.Clean(filepath.Join(base, sessionId))
+	if target == base || !strings.HasPrefix(target, base+string(filepath.Separator)) {
+		return "", false
+	}
+	return target, true
+}
+
 func (service sessionService) DeleteByIds(c context.Context, sessionIds []string) error {
+	// 先删数据库行，再删录屏文件。
+	//
+	// 原实现顺序相反：一旦 DELETE 失败（例如参数超过 SQLite 上限、连接超时），
+	// 就会出现「录屏已经删掉、记录还留在列表里」的不一致——用户看到一条永远点不
+	// 开回放的会话。反过来先删行，最坏情况只是留下几个无人引用的录屏文件。
+	if err := repository.SessionRepository.DeleteByIds(c, sessionIds); err != nil {
+		return err
+	}
+
 	recordingPath := config.GlobalCfg.Guacd.Recording
 	for i := range sessionIds {
-		if err := os.RemoveAll(path.Join(recordingPath, sessionIds[i])); err != nil {
-			return err
+		target, ok := safeRecordingPath(recordingPath, sessionIds[i])
+		if !ok {
+			log.Warn("跳过非法录屏路径", log.String("sessionId", sessionIds[i]))
+			continue
+		}
+		// 删除失败只记录：数据库行已删，此处失败不应让调用方误判为整体失败
+		if err := os.RemoveAll(target); err != nil {
+			log.Warn("删除录屏失败", log.String("sessionId", sessionIds[i]), log.NamedError("err", err))
 		}
 	}
-	// 批量删除（原实现逐条 DELETE，清理大量离线会话时产生数千次单条 SQL）
-	return repository.SessionRepository.DeleteByIds(c, sessionIds)
+	return nil
+}
+
+// CleanupKeepAliveSession 手动清理单个 keep-alive 会话：
+// 用资产凭证 SSH 上去 kill tmux（不等 24h TTL），然后删除会话记录+录屏。
+// tmux kill 失败不阻断删除——tmux 可能已自行退出，或资产已不可达；
+// 记录警告后继续删除，不让用户的清理操作被远端故障卡住。
+func (service sessionService) CleanupKeepAliveSession(sessionId string) error {
+	ctx := context.TODO()
+	s, err := repository.SessionRepository.FindById(ctx, sessionId)
+	if err != nil {
+		return fmt.Errorf("会话不存在: %w", err)
+	}
+
+	// kill tmux（仅 keep-alive 会话有意义）
+	if s.KeepAlive == "1" && s.AssetId != "" && s.AssetId != "-" {
+		asset, err := AssetService.FindByIdAndDecrypt(ctx, s.AssetId)
+		if err == nil && asset.ID != "" {
+			client, err := term.NewSshClient(s.IP, s.Port, asset.Username, asset.Password, asset.PrivateKey, asset.Passphrase)
+			if err == nil {
+				if err := term.KillTmux(client, sessionId); err != nil {
+					log.Warn("手动清理：kill tmux 失败（继续删除记录）", log.String("sessionId", sessionId), log.NamedError("err", err))
+				}
+				client.Close()
+			} else {
+				log.Warn("手动清理：SSH 连接失败（继续删除记录）", log.String("sessionId", sessionId), log.NamedError("err", err))
+			}
+		}
+	}
+
+	// 删除会话记录 + 录屏文件
+	return service.DeleteByIds(ctx, []string{sessionId})
 }
 
 func (service sessionService) ReviewedAll() error {
-	sessions, err := repository.SessionRepository.FindAllUnReviewed(context.TODO())
-	if err != nil {
+	// 一条 UPDATE 完成，不再「全量查 ID → 分批 UPDATE」：
+	// 后者要把数万行读进内存并发出数百条 SQL，单连接下长时间独占数据库。
+	if _, err := repository.SessionRepository.MarkAllReviewed(context.TODO(), true); err != nil {
 		return err
-	}
-	var sessionIds = make([]string, 0)
-	total := len(sessions)
-	for i := range sessions {
-		sessionIds = append(sessionIds, sessions[i].ID)
-		if i >= 100 && i%100 == 0 {
-			if err := repository.SessionRepository.UpdateReadByIds(context.TODO(), true, sessionIds); err != nil {
-				return err
-			}
-			sessionIds = nil
-		} else {
-			if i == total-1 {
-				if err := repository.SessionRepository.UpdateReadByIds(context.TODO(), true, sessionIds); err != nil {
-					return err
-				}
-			}
-		}
-
 	}
 	return nil
 }
@@ -104,9 +155,19 @@ func (service sessionService) ReviewedAll() error {
 var mutex sync.Mutex
 
 func (service sessionService) CloseSessionById(sessionId string, code int, reason string) {
+	// 临界区只保留「摘取会话 + 从管理器移除」这类内存操作。
+	//
+	// 原实现用 defer 把整个函数包在全局互斥锁里，其中包含向 WebSocket 写关闭消息
+	// （每次写带 10s WriteDeadline）与 DisDBSess 的数据库事务。管理员批量断开 N 个
+	// 会话时，N 次关闭全部串行排队，任一慢写会让整体卡住 10s。
+	//
+	// 摘取与移除仍是原子的：并发的第二个调用者会拿到 nil 且条目已被移除，
+	// 行为与原实现一致（两者最终都会执行 DisDBSess）。
 	mutex.Lock()
-	defer mutex.Unlock()
 	nextSession := session.GlobalSessionManager.GetById(sessionId)
+	session.GlobalSessionManager.Del(sessionId)
+	mutex.Unlock()
+
 	if nextSession != nil {
 		log.Debug("会话关闭", log.String("会话ID", sessionId), log.String("原因", reason))
 		service.WriteCloseMessage(nextSession, nextSession.Mode, code, reason)
@@ -118,7 +179,6 @@ func (service sessionService) CloseSessionById(sessionId string, code int, reaso
 			})
 		}
 	}
-	session.GlobalSessionManager.Del(sessionId)
 
 	service.DisDBSess(sessionId, code, reason)
 }
@@ -267,7 +327,7 @@ func (service sessionService) Create(clientIp, assetId, mode string, user *model
 		if strategyId != "" {
 			strategy, err := repository.StrategyRepository.FindById(context.TODO(), strategyId)
 			if err != nil {
-				if !errors.Is(gorm.ErrRecordNotFound, err) {
+				if !errors.Is(err, gorm.ErrRecordNotFound) {
 					return nil, err
 				}
 			} else {
