@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"fmt"
 	"next-terminal/server/common/guacamole"
 	"next-terminal/server/common/term"
 	"next-terminal/server/config"
 	"next-terminal/server/log"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -38,6 +40,12 @@ type Session struct {
 
 	Uptime   int64
 	Hostname string
+
+	// 观察者异步送出（仅观察者会话使用；主会话与 RDP 监控为 nil/false）
+	obQueue     chan []byte
+	obDone      chan struct{}
+	obCloseOnce sync.Once
+	obFailed    atomic.Bool
 }
 
 func (s *Session) WriteMessage(msg dto.Message) error {
@@ -85,8 +93,26 @@ func (s *Session) WriteString(str string) error {
 	return s.WebSocket.WriteMessage(websocket.TextMessage, message)
 }
 
+// WriteBytes 与 WriteString 等价（文本帧），但直接消费 []byte，省掉调用方
+// []byte → string → []byte 的两次全量拷贝。
+//
+// 用于 Guacamole 指令帧：RDP 图像帧单帧可达 MB 级、30fps，原路径
+// （guacd.Read 的 string(data) + 此处 WriteString 的 []byte(str)）每帧多两次
+// 全量 memcpy 与一份瞬态垃圾。gorilla 的 WriteMessage 会直接写这片内存。
+func (s *Session) WriteBytes(p []byte) error {
+	if s.WebSocket == nil {
+		return nil
+	}
+	defer s.mutex.Unlock()
+	s.mutex.Lock()
+	_ = s.WebSocket.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	return s.WebSocket.WriteMessage(websocket.TextMessage, p)
+}
+
 func (s *Session) Close() {
 	log.Warn("Session.Close 被调用", log.String("sessionId", s.ID))
+	// 先停观察者写出循环，避免它在 ws 关闭后继续取队列里的帧
+	s.StopObserverWriter()
 	if s.GraceTimer != nil {
 		s.GraceTimer.Stop()
 	}
@@ -199,6 +225,76 @@ func (s *Session) UpdateLastActive() {
 	s.mutex.Lock()
 	s.Uptime = time.Now().Unix()
 	s.mutex.Unlock()
+}
+
+// observerQueueSize 观察者异步送出队列长度。按「帧」计，不是按字节——
+// 终端一帧通常几十字节到几十 KB，256 帧足够吸收一次突发输出（如 cat 大文件）。
+const observerQueueSize = 256
+
+// StartObserverWriter 为观察者会话启动异步送出循环。
+//
+// 为什么必须异步：主会话的 SSH 输出泵（TermHandler.flush）此前是**同步**扇出到
+// 所有观察者，每个观察者的 WriteMessageBytes 持自己的锁并带 10s WriteDeadline。
+// 一个「慢而未死」的监控端（浏览器后台挂起、网络拥塞、TCP 发送队列满）会让
+// flush 阻塞最长 10 秒；阻塞期间 writeToWebsocket 无法消费 dataChan，
+// dataChan（cap 64）填满后 readFormTunnel 停止读取 SSH stdout，
+// 远端 PTY 的 TCP 窗口随之填满 —— 用户侧表现为「终端卡住」。
+//
+// 已有修复只摘除「写失败」的死亡观察者，解决不了慢观察者。
+// 改为队列 + 独立 goroutine 后，主输出泵只做非阻塞投递。
+func (s *Session) StartObserverWriter(messageType int) {
+	s.obQueue = make(chan []byte, observerQueueSize)
+	s.obDone = make(chan struct{})
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Error("观察者写出 goroutine panic", log.String("sessionId", s.ID),
+					log.String("panic", fmt.Sprintf("%v", err)))
+				s.obFailed.Store(true)
+			}
+		}()
+		for {
+			select {
+			case <-s.obDone:
+				return
+			case p := <-s.obQueue:
+				if err := s.WriteMessageBytes(messageType, p); err != nil {
+					log.Warn("观察者异步写失败，标记失效", log.String("observerId", s.ID), log.NamedError("err", err))
+					s.obFailed.Store(true)
+					return
+				}
+			}
+		}
+	}()
+}
+
+// WriteObserverFrame 非阻塞投递一帧给观察者，返回该观察者是否已失效。
+//
+// 队列满表示观测端消费不过来——只读监控页丢帧可接受，
+// 但绝不能为此把主会话的输出泵拖住，故直接丢弃该帧而不阻塞。
+func (s *Session) WriteObserverFrame(p []byte) (dead bool) {
+	if s.obQueue == nil {
+		// 未启动异步循环（如 RDP 监控，其数据源是独立隧道，不走本路径）
+		return false
+	}
+	if s.obFailed.Load() {
+		return true
+	}
+	select {
+	case s.obQueue <- p:
+		return false
+	default:
+		return false
+	}
+}
+
+// StopObserverWriter 停止异步送出循环（幂等）。
+func (s *Session) StopObserverWriter() {
+	s.obCloseOnce.Do(func() {
+		if s.obDone != nil {
+			close(s.obDone)
+		}
+	})
 }
 
 type Manager struct {

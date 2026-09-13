@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"next-terminal/server/common/guacamole"
 	"next-terminal/server/common/nt"
 	"path"
 	"strconv"
-	"strings"
 	"time"
 
 	"next-terminal/server/config"
@@ -41,20 +41,30 @@ var UpGrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
-			return true // 同源请求无 Origin 头
+			// 无 Origin 头：非浏览器客户端或同源导航。浏览器发起的跨站 WebSocket
+			// 一定携带 Origin，故此处放行不构成跨站面。
+			return true
 		}
+
 		corsOrigins := config.GlobalCfg.Server.CorsOrigins
-		if len(corsOrigins) == 0 {
-			// 未配置 CORS 时，仅允许同源
-			host := r.Host
-			return strings.HasPrefix(origin, "http://"+host) || strings.HasPrefix(origin, "https://"+host)
-		}
 		for _, allowed := range corsOrigins {
 			if allowed == "*" || allowed == origin {
 				return true
 			}
 		}
-		return false
+		if len(corsOrigins) > 0 {
+			// 已显式配置来源白名单，不再走同源兜底
+			return false
+		}
+
+		// 未配置时仅允许同源。必须解析出 Host 后精确比较——
+		// 原实现用 strings.HasPrefix(origin, "http://"+r.Host) 做前缀匹配，
+		// 攻击者注册 nt.example.com.evil.com 即可通过。
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		return u.Host == r.Host
 	},
 	Subprotocols: []string{"guacamole"},
 }

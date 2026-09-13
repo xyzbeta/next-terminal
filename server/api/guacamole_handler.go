@@ -57,7 +57,10 @@ func (r GuacamoleHandler) Start() {
 				}
 				// 统一经 Session 写路径（内部锁 + WriteDeadline）：
 				// 与 CloseSessionById 的 WriteCloseMessage 共享同一把锁，杜绝并发写同一 ws.Conn
-				if err := r.sess.WriteString(string(instruction)); err != nil {
+				//
+				// 用 WriteBytes 而非 WriteString：instruction 已是 []byte，
+				// 原写法 string(instruction) 会让每帧（RDP 图像帧可达 MB）多一次全量拷贝。
+				if err := r.sess.WriteBytes(instruction); err != nil {
 					log.Warn("guacd 写入 WebSocket 失败", log.NamedError("err", err))
 					// 写失败**不退出输出泵**（重连设计的关键）：关闭 ws 促使主循环
 					// ReadMessage 失败进入 Detach 宽限期，后续写经 nil ws 静默丢弃；

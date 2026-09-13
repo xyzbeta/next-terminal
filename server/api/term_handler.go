@@ -38,7 +38,10 @@ type TermHandler struct {
 
 func NewTermHandler(userId, assetId, sessionId string, isRecording bool, ws *websocket.Conn, nextTerminal *term.NextTerminal) *TermHandler {
 	ctx, cancel := context.WithCancel(context.Background())
+	// 初始停止：空闲会话不需要刷新，由 writeToWebsocket 在数据到达时按需启动，
+	// 避免每个空闲会话每 60ms 被唤醒一次（原实现 100 个在线会话 = 1670 次/秒无效唤醒）
 	tick := time.NewTicker(tickInterval)
+	tick.Stop()
 
 	sess := session.GlobalSessionManager.GetById(sessionId)
 	if sess == nil {
@@ -58,8 +61,12 @@ func NewTermHandler(userId, assetId, sessionId string, isRecording bool, ws *web
 }
 
 func (r *TermHandler) Start() {
-	// 最终关闭回调：Session.Close 时 cancel，防止 writeToWebsocket 等 goroutine 泄漏（R1）
-	r.sess.SetOnClose(r.cancel)
+	// 最终关闭回调：Session.Close 时收尾，防止 writeToWebsocket 等 goroutine 泄漏（R1）。
+	//
+	// 注册的是完整的 Stop() 而不是裸 cancel()：Stop 是本 handler 唯一的终止入口
+	// （见 SshEndpoint 中「不能 defer Stop」的说明），这里要一并完成
+	// tick.Stop() 与 ReleaseStats()，否则统计基线不释放。
+	r.sess.SetOnClose(r.Stop)
 	go func() {
 		defer r.recoverPanic("readFormTunnel")
 		r.readFormTunnel()
@@ -117,6 +124,8 @@ func (r *TermHandler) keepalive() {
 
 func (r *TermHandler) Stop() {
 	r.tick.Stop()
+	// 释放该会话的 CPU 差分基准，避免 preCPUs 随历史会话数无限增长
+	ReleaseStats(r.sessionId)
 	r.cancel()
 }
 
@@ -147,8 +156,11 @@ func (r *TermHandler) readFormTunnel() {
 	}
 }
 
-// writeToWebsocket 混合刷新策略：ticker 合并小包，超阈值立即刷新大块数据
+// writeToWebsocket 混合刷新策略：ticker 合并小包，超阈值立即刷新大块数据。
+// ticker 按需启停：有数据待刷新时才启动 60ms 合并窗口，缓冲清空后立即停表，
+// 空闲会话因此完全不产生定时唤醒（保持"有就发、小包合并"的交互语义不变）。
 func (r *TermHandler) writeToWebsocket() {
+	ticking := false
 	for {
 		select {
 		case <-r.ctx.Done():
@@ -158,6 +170,11 @@ func (r *TermHandler) writeToWebsocket() {
 				log.Warn("WebSocket 写入失败，writeToWebsocket 退出(tick)", log.String("sessionId", r.sessionId))
 				return
 			}
+			// 缓冲已清空：停表，空闲期间不再唤醒
+			if r.buf.Len() == 0 {
+				r.tick.Stop()
+				ticking = false
+			}
 		case data := <-r.dataChan:
 			r.buf.Write(data)
 			if r.buf.Len() >= flushThreshold {
@@ -165,6 +182,14 @@ func (r *TermHandler) writeToWebsocket() {
 					log.Warn("WebSocket 写入失败，writeToWebsocket 退出(data)", log.String("sessionId", r.sessionId))
 					return
 				}
+				if ticking {
+					r.tick.Stop()
+					ticking = false
+				}
+			} else if !ticking {
+				// 首次进入待刷状态：启动合并窗口
+				r.tick.Reset(tickInterval)
+				ticking = true
 			}
 		}
 	}
@@ -211,16 +236,39 @@ func (r *TermHandler) SendMessageToWebSocket(msg dto.Message) error {
 	return r.sess.WriteMessage(msg)
 }
 
+// SendObData 把主会话的输出帧扇出给所有观察者（监控端）。
+//
+// 必须是**非阻塞**的：本函数在 SSH 输出泵的 flush() 里同步调用，
+// 一旦在这里等待观测端的网络写，慢观察者就会顺着
+// flush → dataChan 填满 → 停止读 SSH stdout → 远端 PTY 窗口填满
+// 这条链把主会话的终端卡住（详见 Session.StartObserverWriter 的说明）。
+// 投递到各观察者自己的队列后立即返回，实际写出由观察者的 goroutine 完成。
 func SendObData(sessionId string, data []byte) {
 	nextSession := session.GlobalSessionManager.GetById(sessionId)
-	if nextSession != nil && nextSession.Observer != nil {
-		nextSession.Observer.Range(func(key string, ob *session.Session) {
-			if err := ob.WriteMessageBytes(Data, data); err != nil {
-				log.Warn("observer write failed", log.String("observerId", key), log.NamedError("err", err))
-				// 写失败（含 10s 超时）判定观察者已死亡：立即移除并关闭，
-				// 原实现保留死亡观察者导致每个 flush 都被 TCP 超时卡住，主会话输出停摆
-				nextSession.Observer.Del(key)
-			}
-		})
+	if nextSession == nil || nextSession.Observer == nil {
+		return
 	}
+
+	// 先探测是否有观察者，避免无人监控时也白拷一份
+	hasObserver := false
+	nextSession.Observer.Range(func(_ string, _ *session.Session) {
+		hasObserver = true
+	})
+	if !hasObserver {
+		return
+	}
+
+	// data 是 flush 的 buf 视图，函数返回后 buf.Reset() 会复用同一片内存，
+	// 异步写循环必须持有自己的副本。所有观察者共享这一份副本（都只读不写），
+	// 因此每个 flush 只多一次拷贝，而不是每个观察者一次。
+	frame := make([]byte, len(data))
+	copy(frame, data)
+
+	nextSession.Observer.Range(func(key string, ob *session.Session) {
+		if ob.WriteObserverFrame(frame) {
+			// 观察者已确认失效（写失败或 panic）：摘除，避免后续 flush 继续为它拷贝
+			log.Warn("观察者已失效，摘除", log.String("observerId", key))
+			nextSession.Observer.Del(key)
+		}
+	})
 }

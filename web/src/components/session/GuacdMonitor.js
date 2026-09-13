@@ -5,6 +5,7 @@ import {wsServer} from "../../common/env";
 import {getToken} from "../../utils/utils";
 import qs from "qs";
 import {debounce} from "../../utils/fun";
+import BackButton from "../BackButton";
 
 const STATE_IDLE = 0;
 const STATE_CONNECTING = 1;
@@ -119,17 +120,20 @@ const GuacdMonitor = () => {
     }, [sessionId]);
 
     return (
-        <div style={{
-            width: '100vw',
-            height: '100vh',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: '#1b1b1b'
-        }}>
-            <div id ='tip' style={{color: 'white', fontWeight: 'bold'}}>{tip}</div>
-            <div id="display"/>
-        </div>
+        <>
+            <BackButton to="/#/online-session"/>
+            <div style={{
+                width: '100vw',
+                height: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#1b1b1b'
+            }}>
+                <div id ='tip' style={{color: 'white', fontWeight: 'bold'}}>{tip}</div>
+                <div id="display"/>
+            </div>
+        </>
     );
 };
 
