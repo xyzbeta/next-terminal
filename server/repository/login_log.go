@@ -61,19 +61,29 @@ func (r loginLogRepository) FindAliveLoginLogsByUsername(c context.Context, user
 	return
 }
 
-func (r loginLogRepository) FindOutTimeLog(c context.Context, dayLimit int) (o []model.LoginLog, err error) {
-	limitTime := time.Now().Add(time.Duration(-dayLimit*24) * time.Hour)
-	// 仅取 ID：清理任务只需主键
-	err = r.GetDB(c).Select("id").Where("(state = '0' and login_time < ?) or (state = '1' and logout_time < ?) or (state is null and logout_time < ?)", limitTime, limitTime, limitTime).Find(&o).Error
-	return
-}
-
 func (r loginLogRepository) Create(c context.Context, o *model.LoginLog) (err error) {
 	return r.GetDB(c).Create(o).Error
 }
 
 func (r loginLogRepository) DeleteByIdIn(c context.Context, ids []string) (err error) {
 	return r.GetDB(c).Where("id in ?", ids).Delete(&model.LoginLog{}).Error
+}
+
+// DeleteOutTimeLog 按保留期直接删除，返回删除行数。
+//
+// 替代「先查出全部过期 ID、再 DeleteByIdIn」的写法：后者会把数万个 ID 展开成
+// SQL 占位符，而 SQLite 的 SQLITE_MAX_VARIABLE_NUMBER 为 32766，超过即报
+// "too many SQL variables"——10 万行以上的库清理任务会**永远失败**（仅告警刷屏），
+// 日志表只增不减，统计查询持续恶化。未超限时单次也要独占唯一连接约 2.4 秒。
+//
+// 删除条件即保留期判定：失败登录按 login_time、已登出按 logout_time 计算。
+func (r loginLogRepository) DeleteOutTimeLog(c context.Context, dayLimit int) (int64, error) {
+	limitTime := time.Now().Add(time.Duration(-dayLimit*24) * time.Hour)
+	result := r.GetDB(c).
+		Where("(state = '0' and login_time < ?) or (state = '1' and logout_time < ?) or (state is null and logout_time < ?)",
+			limitTime, limitTime, limitTime).
+		Delete(&model.LoginLog{})
+	return result.RowsAffected, result.Error
 }
 
 func (r loginLogRepository) DeleteAll(c context.Context) (err error) {

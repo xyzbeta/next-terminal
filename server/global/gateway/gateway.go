@@ -8,8 +8,6 @@ import (
 	"os"
 	"sync"
 
-	"next-terminal/server/utils"
-
 	"golang.org/x/crypto/ssh"
 )
 
@@ -46,11 +44,6 @@ func (g *Gateway) OpenSshTunnel(id, ip string, port int) (exposedIP string, expo
 		}
 	}
 
-	localPort, err := utils.GetAvailablePort()
-	if err != nil {
-		return "", 0, err
-	}
-
 	hostname, err := os.Hostname()
 	if err != nil {
 		return "", 0, err
@@ -59,11 +52,15 @@ func (g *Gateway) OpenSshTunnel(id, ip string, port int) (exposedIP string, expo
 	// debug
 	//hostname = "0.0.0.0"
 
-	localAddr := fmt.Sprintf("%s:%d", hostname, localPort)
-	listener, err := net.Listen("tcp", localAddr)
+	// 直接在目标地址上以 :0 监听并回读实际端口。
+	// 原实现先用 GetAvailablePort() 在 localhost 上探测一个空闲端口，再拿去绑
+	// hostname:port —— 探测与绑定是两个不同的地址、且中间存在时间窗（TOCTOU），
+	// 高并发建隧道时可能绑到已被占用的端口而失败。
+	listener, err := net.Listen("tcp", fmt.Sprintf("%s:0", hostname))
 	if err != nil {
 		return "", 0, err
 	}
+	localPort := listener.Addr().(*net.TCPAddr).Port
 
 	tunnel := &Tunnel{
 		id:        id,

@@ -244,6 +244,16 @@ func (r assetRepository) DeleteById(c context.Context, assetId string) (err erro
 	return r.GetDB(c).Where("id = ?", assetId).Delete(&model.Asset{}).Error
 }
 
+// DeleteByIds 批量删除资产（一条 IN 语句）
+func (r assetRepository) DeleteByIds(c context.Context, assetIds []string) (err error) {
+	return r.GetDB(c).Where("id in ?", assetIds).Delete(&model.Asset{}).Error
+}
+
+// DeleteAttrByAssetIds 批量删除资产属性（一条 IN 语句）
+func (r assetRepository) DeleteAttrByAssetIds(c context.Context, assetIds []string) error {
+	return r.GetDB(c).Where("asset_id in ?", assetIds).Delete(&model.AssetAttribute{}).Error
+}
+
 func (r assetRepository) DeleteAttrByAssetId(c context.Context, assetId string) error {
 	return r.GetDB(c).Where("asset_id = ?", assetId).Delete(&model.AssetAttribute{}).Error
 }
@@ -264,21 +274,21 @@ func (r assetRepository) CountByProtocol(c context.Context, protocol string) (to
 }
 
 func (r assetRepository) FindTags(c context.Context) (o []string, err error) {
-	var assets []model.Asset
-	err = r.GetDB(c).Not("tags = '' or tags = '-' ").Find(&assets).Error
+	// 只取 tags 一列：原实现 Find(&assets) 会把整行读回内存，
+	// 其中包含 password / private_key / passphrase 等敏感大列——
+	// 为了拼一个标签列表而全量载入私钥，在数千资产时是数十 MB 的无谓开销。
+	var tags []string
+	err = r.GetDB(c).Model(&model.Asset{}).Not("tags = '' or tags = '-' ").Pluck("tags", &tags).Error
 	if err != nil {
 		return nil, err
 	}
 
-	o = make([]string, 0)
-
-	for i := range assets {
-		if len(assets[i].Tags) == 0 {
+	o = make([]string, 0, len(tags))
+	for _, t := range tags {
+		if len(t) == 0 {
 			continue
 		}
-		split := strings.Split(assets[i].Tags, ",")
-
-		o = append(o, split...)
+		o = append(o, strings.Split(t, ",")...)
 	}
 
 	return utils.Distinct(o), nil

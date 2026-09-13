@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 
+	"gorm.io/gorm"
+
 	"next-terminal/server/dto"
 	"next-terminal/server/model"
 )
@@ -27,6 +29,11 @@ func (r authorisedRepository) DeleteByUserId(c context.Context, userId string) e
 
 func (r authorisedRepository) DeleteByUserGroupId(c context.Context, userGroupId string) error {
 	return r.GetDB(c).Where("user_group_id = ?", userGroupId).Delete(model.Authorised{}).Error
+}
+
+// DeleteByAssetIds 批量删除资产授权关系（一条 IN 语句）
+func (r authorisedRepository) DeleteByAssetIds(c context.Context, assetIds []string) error {
+	return r.GetDB(c).Where("asset_id in ?", assetIds).Delete(model.Authorised{}).Error
 }
 
 func (r authorisedRepository) DeleteByAssetId(c context.Context, assetId string) error {
@@ -69,11 +76,21 @@ func (r authorisedRepository) FindAll(c context.Context, userId, userGroupId, as
 }
 
 func (r authorisedRepository) FindAssetPage(c context.Context, pageIndex, pageSize int, assetName, userId, userGroupId string) (o []dto.AssetPageForAuthorised, total int64, err error) {
-	db := r.GetDB(c).Table("assets").
-		Select("authorised.id, authorised.created, assets.id as asset_id, assets.name as asset_name, strategies.id as strategy_id, strategies.name as strategy_name ").
-		Joins("left join authorised on authorised.asset_id = assets.id").
-		Joins("left join strategies      on strategies.id      = authorised.strategy_id")
-	dbCounter := r.GetDB(c).Table("assets").Joins("left join authorised on assets.id = authorised.asset_id").Group("assets.id")
+	// counter 必须与列表查询同源。
+	//
+	// 原 counter 额外带了 Group("assets.id")，数的是「涉及的资产数」，
+	// 而列表返回的是「授权记录数」（一个资产被 N 个用户授权就有 N 行）。
+	// 实测：2 个资产、4 条授权时列表 4 行而 counter=2 → 前端分页只显示 1 页，
+	// 第 2 页起永远取不到数据。同时 counter 也缺少 strategies 的 join。
+	baseQuery := func() *gorm.DB {
+		return r.GetDB(c).Table("assets").
+			Joins("left join authorised on authorised.asset_id = assets.id").
+			Joins("left join strategies      on strategies.id      = authorised.strategy_id")
+	}
+
+	db := baseQuery().
+		Select("authorised.id, authorised.created, assets.id as asset_id, assets.name as asset_name, strategies.id as strategy_id, strategies.name as strategy_name ")
+	dbCounter := baseQuery()
 
 	if assetName != "" {
 		db = db.Where("assets.name like ?", "%"+assetName+"%")
@@ -107,11 +124,21 @@ func (r authorisedRepository) DeleteById(c context.Context, id string) error {
 }
 
 func (r authorisedRepository) FindUserPage(c context.Context, pageIndex, pageSize int, userName, assetId string) (o []dto.UserPageForAuthorised, total int64, err error) {
-	db := r.GetDB(c).Table("users").
-		Select("authorised.id, authorised.created, users.id as user_id, users.nickname as user_name, strategies.id as strategy_id, strategies.name as strategy_name ").
-		Joins("left join authorised on authorised.user_id = users.id").
-		Joins("left join strategies      on strategies.id      = authorised.strategy_id")
-	dbCounter := r.GetDB(c).Table("assets").Joins("left join authorised on assets.id = authorised.asset_id").Group("assets.id")
+	// counter 必须与列表查询同源（同一组 FROM / JOIN）。
+	//
+	// 原实现 counter 用的是 Table("assets") + GROUP BY assets.id，而过滤条件里
+	// 引用了 users.nickname —— 该列在 counter 的 FROM 中根本不存在，
+	// 实测报「no such column: users.nickname」：带搜索参数即 500，
+	// 不带参数时统计的也是资产数而非用户授权记录数。
+	baseQuery := func() *gorm.DB {
+		return r.GetDB(c).Table("users").
+			Joins("left join authorised on authorised.user_id = users.id").
+			Joins("left join strategies      on strategies.id      = authorised.strategy_id")
+	}
+
+	db := baseQuery().
+		Select("authorised.id, authorised.created, users.id as user_id, users.nickname as user_name, strategies.id as strategy_id, strategies.name as strategy_name ")
+	dbCounter := baseQuery()
 
 	if userName != "" {
 		db = db.Where("users.nickname like ?", "%"+userName+"%")
@@ -136,11 +163,17 @@ func (r authorisedRepository) FindUserPage(c context.Context, pageIndex, pageSiz
 }
 
 func (r authorisedRepository) FindUserGroupPage(c context.Context, pageIndex, pageSize int, userName, assetId string) (o []dto.UserGroupPageForAuthorised, total int64, err error) {
-	db := r.GetDB(c).Table("user_groups").
-		Select("authorised.id, authorised.created, user_groups.id as user_group_id, user_groups.name as user_group_name, strategies.id as strategy_id, strategies.name as strategy_name ").
-		Joins("left join authorised on authorised.user_group_id = user_groups.id").
-		Joins("left join strategies      on strategies.id      = authorised.strategy_id")
-	dbCounter := r.GetDB(c).Table("assets").Joins("left join authorised on assets.id = authorised.asset_id").Group("assets.id")
+	// 同 FindUserPage：counter 原用 Table("assets")，却按 user_groups.name 过滤，
+	// 同样会 no such column。改为与列表查询同源。
+	baseQuery := func() *gorm.DB {
+		return r.GetDB(c).Table("user_groups").
+			Joins("left join authorised on authorised.user_group_id = user_groups.id").
+			Joins("left join strategies      on strategies.id      = authorised.strategy_id")
+	}
+
+	db := baseQuery().
+		Select("authorised.id, authorised.created, user_groups.id as user_group_id, user_groups.name as user_group_name, strategies.id as strategy_id, strategies.name as strategy_name ")
+	dbCounter := baseQuery()
 
 	if userName != "" {
 		db = db.Where("user_groups.name like ?", "%"+userName+"%")

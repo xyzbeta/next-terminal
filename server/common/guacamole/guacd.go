@@ -171,6 +171,23 @@ func NewTunnel(address string, config *Configuration) (ret *Tunnel, err error) {
 		_ = tcpConn.SetNoDelay(true)
 	}
 
+	// 握手阶段的读超时。
+	//
+	// guacd 可能接受了 TCP 连接却一个字节都不回（进程假死、上游黑洞路由、
+	// 容器网络策略丢弃），此时下面的 expect() 会永久阻塞；而这一阶段的隧道
+	// 尚未注册到任何 Session，没有任何路径能解除阻塞——
+	// goroutine、TCP 连接、WebSocket 一并永久泄漏。
+	//
+	// 取值需容纳「guacd 正在连目标机」这段真实耗时：expect("ready") 要等到
+	// guacd 与目标建立 RDP/VNC 连接后才返回，慢目标可达数十秒。60s 相对常见
+	// 的 RDP 连接超时（约 20s）留有充足余量。
+	//
+	// ⚠️ deadline 只覆盖握手阶段，成功返回前必须清除（见下方 SetReadDeadline(time.Time{})）。
+	// 运行中的主循环**绝对不能**有读超时：GuacamoleHandler 依赖长期静默空闲
+	// （画面静止时 guacd 可以长时间不发数据），一超时就会被误判为断线。
+	const handshakeTimeout = 60 * time.Second
+	_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
+
 	ret = &Tunnel{}
 	ret.conn = conn
 	// 32KB 缓冲：RDP 图像帧达 MB 级，大缓冲减少 syscall 次数（默认 4096）
@@ -237,8 +254,15 @@ func NewTunnel(address string, config *Configuration) (ret *Tunnel, err error) {
 
 	ready, err := ret.expect("ready")
 	if err != nil {
+		// 与其他 8 处早退分支一致：必须关闭连接。
+		// 原实现此处是裸 return，是全部早退分支中唯一漏掉 Close 的，
+		// guacd 返回异常时该 TCP 连接与它上面的 bufio 缓冲一并泄漏。
+		_ = conn.Close()
 		return
 	}
+
+	// 握手完成，清除读 deadline 再交给主循环（见上方 SetReadDeadline 处的说明）
+	_ = conn.SetReadDeadline(time.Time{})
 
 	if len(ready.Args) == 0 {
 		_ = conn.Close()
@@ -286,14 +310,20 @@ func (opt *Tunnel) Read() (p []byte, err error) {
 	if err != nil {
 		return
 	}
-	s := string(data)
-	if s == "rate=44100,channels=2;" {
-		return make([]byte, 0), nil
+	// 先比长度，再决定是否转 string。
+	//
+	// 这两个「静音音频帧」常量的长度都是 22 字节，而绝大多数帧（尤其是 RDP 图像帧，
+	// 单帧可达 MB 级）长度都不匹配。原实现对每一帧都做一次 string(data) 全量拷贝，
+	// 仅仅为了和两个常量做比较——1080p 30fps 下等于每秒几十 MB 的纯 memcpy 与瞬态垃圾。
+	// len(常量) 是编译期求值，不产生分配。
+	if len(data) == len("rate=44100,channels=2;") {
+		switch string(data) {
+		case "rate=44100,channels=2;", "rate=22050,channels=2;":
+			return make([]byte, 0), nil
+		}
 	}
-	if s == "rate=22050,channels=2;" {
-		return make([]byte, 0), nil
-	}
-	if s == "5.audio,1.1,31.audio/L16;" {
+	// 该分支需要修改内容，长度不匹配时才做一次判断
+	if len(data) == len("5.audio,1.1,31.audio/L16;") && string(data) == "5.audio,1.1,31.audio/L16;" {
 		data = append(data, []byte("rate=44100,channels=2;")...)
 	}
 	// 直接返回原始字节（原实现 string(data)→[]byte(s) 每帧双拷贝，RDP 图像帧达 MB 级）

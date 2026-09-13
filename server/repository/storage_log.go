@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"next-terminal/server/dto"
 	"next-terminal/server/model"
@@ -15,6 +16,17 @@ type storageLogRepository struct {
 
 func (r storageLogRepository) DeleteById(c context.Context, id string) error {
 	return r.GetDB(c).Where("id = ?", id).Delete(model.StorageLog{}).Error
+}
+
+// DeleteOutTimeLog 按保留期直接删除存储操作日志，返回删除行数。
+//
+// 存储日志此前完全没有保留期清理：每次上传/下载/删除/重命名/建目录各插一行，
+// 永不过期——与 sessions / login_logs / job_logs 三张表的策略不一致，
+// 长期运行后成为库中增长最快的表。
+func (r storageLogRepository) DeleteOutTimeLog(c context.Context, dayLimit int) (int64, error) {
+	limitTime := time.Now().Add(time.Duration(-dayLimit*24) * time.Hour)
+	result := r.GetDB(c).Where("created < ?", limitTime).Delete(&model.StorageLog{})
+	return result.RowsAffected, result.Error
 }
 
 func (r storageLogRepository) DeleteAll(c context.Context) error {
@@ -66,7 +78,18 @@ func (r storageLogRepository) Find(c context.Context, pageIndex, pageSize int, a
 		order = "desc"
 	}
 
-	if field == "" {
+	// field 必须白名单归一为字面量：GORM 的 Order() 接收原始 SQL 片段、不做参数化，
+	// 直接拼接等于把 ORDER BY 子句交给调用方控制。原实现只在空值时兜底，非空即原样
+	// 拼入，构成 SQL 注入（配合错误信息回显可直接做盲注/报错注入）。
+	// 同仓其余 repository 均为此写法，唯此处漏改。
+	switch field {
+	case "asset_name":
+		field = "assets.name"
+	case "user_name":
+		field = "users.nickname"
+	case "action":
+		field = "storage_logs.action"
+	default:
 		field = "storage_logs.created"
 	}
 

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -32,6 +33,13 @@ func (r *Tunnel) Open(sshClient *ssh.Client) {
 
 		localConn, err := r.listener.Accept()
 		if err != nil {
+			// listener 已被 Close：Accept 不再阻塞，会立即返回 net.ErrClosed。
+			// 必须在此退出——若与超时一并 continue，本循环会退化为纯 CPU 空转
+			// （实测约 443 万次/秒）且永不结束，每个被关闭的隧道永久占用一个核心。
+			// 批量 Shell 作业会对每个经网关的资产建/拆一次隧道，瞬间即可积累上百个。
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			// 超时并非致命错误，清理后继续等待
 			r.cleanupClosed()
 			continue
@@ -93,15 +101,24 @@ func (r *Tunnel) cleanupClosed() {
 }
 
 func (r *Tunnel) Close() {
-	for i := range r.localConnections {
-		_ = r.localConnections[i].Close()
-	}
-	r.localConnections = nil
-	for i := range r.remoteConnections {
-		_ = r.remoteConnections[i].Close()
-	}
-	r.remoteConnections = nil
+	// 先关 listener 让 Open 的 Accept 循环退出（见 Open 中对 net.ErrClosed 的处理），
+	// 再在锁内摘取连接列表——Accept 循环会加锁追加，此处若不加锁直接置 nil，
+	// 并发 append 会写回旧底层数组，导致连接引用丢失、FD 泄漏。
 	_ = r.listener.Close()
+
+	r.mu.Lock()
+	localConns := r.localConnections
+	remoteConns := r.remoteConnections
+	r.localConnections = nil
+	r.remoteConnections = nil
+	r.mu.Unlock()
+
+	for i := range localConns {
+		_ = localConns[i].Close()
+	}
+	for i := range remoteConns {
+		_ = remoteConns[i].Close()
+	}
 }
 
 func copyConn(writer, reader net.Conn) {

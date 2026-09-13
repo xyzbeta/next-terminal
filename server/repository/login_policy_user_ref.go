@@ -61,6 +61,12 @@ func (r timePeriodRepository) DeleteByLoginPolicyId(c context.Context, loginPoli
 	return r.GetDB(c).Where("login_policy_id = ?", loginPolicyId).Delete(model.TimePeriod{}).Error
 }
 
+// FindByLoginPolicyIdIn 一次取回多个策略的时段配置，用于消除逐个查询的 N+1
+func (r timePeriodRepository) FindByLoginPolicyIdIn(c context.Context, loginPolicyIds []string) (items []model.TimePeriod, err error) {
+	err = r.GetDB(c).Where("login_policy_id in ?", loginPolicyIds).Find(&items).Error
+	return
+}
+
 func (r timePeriodRepository) FindByLoginPolicyId(c context.Context, loginPolicyId string) (items []model.TimePeriod, err error) {
 	err = r.GetDB(c).Where("login_policy_id = ?", loginPolicyId).Find(&items).Error
 	return

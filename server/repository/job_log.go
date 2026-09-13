@@ -30,19 +30,22 @@ func (r jobLogRepository) FindByJobId(c context.Context, jobId string, pageIndex
 	return
 }
 
-func (r jobLogRepository) FindOutTimeLog(c context.Context, dayLimit int) (o []model.JobLog, err error) {
-	limitTime := time.Now().Add(time.Duration(-dayLimit*24) * time.Hour)
-	// 仅取 ID：清理任务只需主键
-	err = r.GetDB(c).Select("id").Where("timestamp < ?", limitTime).Find(&o).Error
-	return
-}
-
 func (r jobLogRepository) DeleteByJobId(c context.Context, jobId string) error {
 	return r.GetDB(c).Where("job_id = ?", jobId).Delete(model.JobLog{}).Error
 }
 
 func (r jobLogRepository) DeleteByIdIn(c context.Context, ids []string) error {
 	return r.GetDB(c).Where("id in ?", ids).Delete(&model.JobLog{}).Error
+}
+
+// DeleteOutTimeLog 按保留期直接删除，返回删除行数。
+// 与 LoginLogRepository.DeleteOutTimeLog 同理：避免把数万个 ID 展开成 SQL 占位符
+// （SQLite 的 SQLITE_MAX_VARIABLE_NUMBER 为 32766，超过即报 "too many SQL variables"，
+// 清理任务会永远失败且只留告警）。
+func (r jobLogRepository) DeleteOutTimeLog(c context.Context, dayLimit int) (int64, error) {
+	limitTime := time.Now().Add(time.Duration(-dayLimit*24) * time.Hour)
+	result := r.GetDB(c).Where("timestamp < ?", limitTime).Delete(&model.JobLog{})
+	return result.RowsAffected, result.Error
 }
 
 func (r jobLogRepository) DeleteById(c context.Context, id string) error {
