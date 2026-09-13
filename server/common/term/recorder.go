@@ -3,6 +3,7 @@ package term
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"time"
 
@@ -112,8 +113,53 @@ func NewRecorder(recordingPath, term string, h int, w int) (recorder *Recorder, 
 	}
 
 	if err := recorder.WriteHeader(header); err != nil {
+		// 写头失败时必须关掉已打开的文件，否则这个 *os.File 会被丢弃且永不回收
+		// （调用方拿到的是 nil recorder，无从释放）。recorder.Writer 是包在它上面的
+		// bufio，关掉 file 即可。
+		_ = file.Close()
 		return nil, err
 	}
 
+	return recorder, nil
+}
+
+// NewRecorderAppend 以**追加**模式打开既有录屏（tmux 重连续录用）。
+//
+// 与 NewRecorder 的关键差异：
+//   · 绝不 RemoveAll 父目录 —— 那是「新建」语义，会把旧录屏连目录一起删掉
+//     （NewRecorder 对录屏路径的父目录执行 os.RemoveAll 是本项目已知陷阱，见 CLAUDE.md）；
+//   · 不重写 cast 头：首行 header 已存在，追加的每条数据行按其 Timestamp 计算 delta，
+//     这里读回首行恢复 recorder.Timestamp，保证续录的时间轴连续；
+//   · 文件不存在或头损坏时回退为新建（返回 nil 由调用方走 NewRecorder）。
+func NewRecorderAppend(recordingPath, term string, h, w int) (recorder *Recorder, err error) {
+	if !utils.FileExists(recordingPath) {
+		return nil, fmt.Errorf("recording not exists")
+	}
+	file, err := os.OpenFile(recordingPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, err
+	}
+
+	recorder = &Recorder{File: file, Writer: bufio.NewWriterSize(file, 32*1024)}
+
+	// 读首行 header 恢复时间基准
+	fr, err := os.Open(recordingPath)
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	defer fr.Close()
+	br := bufio.NewReader(fr)
+	line, err := br.ReadString('\n')
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	var header Header
+	if err := json.Unmarshal([]byte(line), &header); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	recorder.Timestamp = header.Timestamp
 	return recorder, nil
 }

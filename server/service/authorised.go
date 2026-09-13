@@ -107,7 +107,7 @@ func (s authorisedService) GetAuthorised(userId, assetId string) (item *model.Au
 	id := utils.Sign([]string{assetId, userId, ""})
 	authorised, err := repository.AuthorisedRepository.FindById(context.Background(), id)
 	if err != nil {
-		if errors.Is(gorm.ErrRecordNotFound, err) {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			groupIds, err := repository.UserGroupMemberRepository.FindUserGroupIdsByUserId(context.Background(), userId)
 			if err != nil {
 				return nil, err

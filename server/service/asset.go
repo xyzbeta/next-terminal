@@ -222,6 +222,30 @@ func (s assetService) DeleteById(id string) error {
 	})
 }
 
+// DeleteByIds 批量删除资产：整批包在一个事务里，每类关联表各一条 IN 语句。
+//
+// 原实现由 API 层循环调用 DeleteById，N 个资产 = N 个事务 × 3 条语句。
+// 在 SQLite 单连接下，这些事务串行独占连接，且（磁盘真正 fsync 时）每次提交
+// 都要等待落盘。批量化后是 1 个事务 × 3 条语句。
+//
+// 语义变化：原实现遇到失败会中断，已删的保留；现在整批原子回滚。
+// 对「批量删除资产」这类操作，原子性更符合预期。
+func (s assetService) DeleteByIds(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return env.GetDB().Transaction(func(tx *gorm.DB) error {
+		c := s.Context(tx)
+		if err := repository.AssetRepository.DeleteByIds(c, ids); err != nil {
+			return err
+		}
+		if err := repository.AssetRepository.DeleteAttrByAssetIds(c, ids); err != nil {
+			return err
+		}
+		return repository.AuthorisedRepository.DeleteByAssetIds(c, ids)
+	})
+}
+
 func (s assetService) UpdateById(id string, m maps.Map) error {
 	data, err := json.Marshal(m)
 	if err != nil {

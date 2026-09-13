@@ -162,7 +162,7 @@ func (service backupService) Import(backup *dto.Backup) error {
 
 				userGroup, err := UserGroupService.Create(ctx, item.Name, members)
 				if err != nil {
-					if errors.Is(nt.ErrNameAlreadyUsed, err) {
+					if errors.Is(err, nt.ErrNameAlreadyUsed) {
 						// 删除名称重复的用户组
 						delete(userGroupIdMapping, oldId)
 						continue

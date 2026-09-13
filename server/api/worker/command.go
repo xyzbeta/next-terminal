@@ -2,8 +2,6 @@ package worker
 
 import (
 	"context"
-	"errors"
-	"gorm.io/gorm"
 	"next-terminal/server/common/nt"
 	"strconv"
 	"strings"
@@ -95,7 +93,10 @@ func (api WorkCommandApi) CommandDeleteEndpoint(c echo.Context) error {
 	id := c.Param("id")
 	split := strings.Split(id, ",")
 	for i := range split {
-		if !api.checkPermission(c, id) {
+		// 注意必须校验 split[i]：原实现传的是整个逗号拼接串，该串在库中必然查不到，
+		// 而 checkPermission 对「记录不存在」返回 true（fail-open），
+		// 于是 DELETE /worker/commands/<他人ID>,x 就能删掉他人（含管理员）的命令。
+		if !api.checkPermission(c, split[i]) {
 			return nt.ErrPermissionDenied
 		}
 		if err := repository.CommandRepository.DeleteById(context.TODO(), split[i]); err != nil {
@@ -118,15 +119,18 @@ func (api WorkCommandApi) CommandGetEndpoint(c echo.Context) (err error) {
 }
 
 func (api WorkCommandApi) checkPermission(c echo.Context, commandId string) bool {
-	command, err := repository.CommandRepository.FindById(context.Background(), commandId)
-	if err != nil {
-		if errors.Is(gorm.ErrRecordNotFound, err) {
-			return true
-		}
+	account, found := api.GetCurrentAccount(c)
+	if !found || account == nil {
 		return false
 	}
-	account, _ := api.GetCurrentAccount(c)
-	userId := account.ID
 
-	return command.Owner == userId
+	command, err := repository.CommandRepository.FindById(context.Background(), commandId)
+	if err != nil {
+		// fail-close：记录不存在时返回 false。
+		// 原实现对 ErrRecordNotFound 返回 true，等于「查不到就放行」，
+		// 任何使 ID 无法命中的构造（如逗号拼接串）都能绕过归属校验。
+		return false
+	}
+
+	return command.Owner == account.ID
 }

@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"next-terminal/server/utils"
 
@@ -84,7 +83,7 @@ func runRemote(client *ssh.Client, cmd string) (string, error) {
 
 func GetAllStats(nextSession *session.Session) (*Stat, error) {
 	client := nextSession.NextTerminal.SshClient
-	start := time.Now()
+	defer utils.TimeWatcher("GetAllStats")()
 
 	stats := &Stat{
 		Uptime:   nextSession.Uptime,
@@ -125,13 +124,11 @@ func GetAllStats(nextSession *session.Session) (*Stat, error) {
 		return getCPU(nextSession.ID, client, stats)
 	})
 	runner.Wait()
-	cost := time.Since(start)
-	fmt.Printf("%s: %v\n", "GetAllStats", cost)
 	return stats, nil
 }
 
 func getHostname(client *ssh.Client, stat *Stat) (err error) {
-	defer utils.TimeWatcher("getHostname")
+	defer utils.TimeWatcher("getHostname")()
 	hostname, err := runRemote(client, "/bin/hostname -f")
 	if err != nil {
 		return
@@ -141,7 +138,7 @@ func getHostname(client *ssh.Client, stat *Stat) (err error) {
 }
 
 func getUptime(client *ssh.Client, stat *Stat) (err error) {
-	defer utils.TimeWatcher("getUptime")
+	defer utils.TimeWatcher("getUptime")()
 	uptime, err := runRemote(client, "/bin/cat /proc/uptime")
 	if err != nil {
 		return
@@ -160,7 +157,7 @@ func getUptime(client *ssh.Client, stat *Stat) (err error) {
 }
 
 func getLoad(client *ssh.Client, stat *Stat) (err error) {
-	defer utils.TimeWatcher("getLoad")
+	defer utils.TimeWatcher("getLoad")()
 	line, err := runRemote(client, "/bin/cat /proc/loadavg")
 	if err != nil {
 		return
@@ -182,7 +179,7 @@ func getLoad(client *ssh.Client, stat *Stat) (err error) {
 }
 
 func getMem(client *ssh.Client, stat *Stat) (err error) {
-	defer utils.TimeWatcher("getMem")
+	defer utils.TimeWatcher("getMem")()
 	lines, err := runRemote(client, "/bin/cat /proc/meminfo")
 	if err != nil {
 		return
@@ -220,7 +217,7 @@ func getMem(client *ssh.Client, stat *Stat) (err error) {
 }
 
 func getFileSystems(client *ssh.Client, stat *Stat) (err error) {
-	defer utils.TimeWatcher("getFileSystems")
+	defer utils.TimeWatcher("getFileSystems")()
 	lines, err := runRemote(client, "/bin/df -B1")
 	if err != nil {
 		return
@@ -256,7 +253,7 @@ func getFileSystems(client *ssh.Client, stat *Stat) (err error) {
 }
 
 func getInterfaces(client *ssh.Client, stats *Stat) (err error) {
-	defer utils.TimeWatcher("getInterfaces")
+	defer utils.TimeWatcher("getInterfaces")()
 	var lines string
 	lines, err = runRemote(client, "/bin/ip -o addr")
 	if err != nil {
@@ -301,7 +298,7 @@ func getInterfaces(client *ssh.Client, stats *Stat) (err error) {
 }
 
 func getInterfaceInfo(client *ssh.Client, stats *Stat) (err error) {
-	defer utils.TimeWatcher("getInterfaceInfo")
+	defer utils.TimeWatcher("getInterfaceInfo")()
 
 	if stats.Network == nil {
 		return
@@ -372,8 +369,15 @@ func parseCPUFields(fields []string, stat *cpuRaw) {
 // preCPUs CPU 差分基准按会话隔离：原包级全局 preCPU 在多会话并发时跨主机混算且数据竞争
 var preCPUs sync.Map
 
+// ReleaseStats 清理某会话的统计缓存。会话关闭时必须调用：
+// preCPUs 以 sessionId 为键、只增不删，每个访问过统计面板的会话会永久占用
+// 约 200B，10 万历史会话即约 20MB 常驻内存。
+func ReleaseStats(sessionId string) {
+	preCPUs.Delete(sessionId)
+}
+
 func getCPU(sessionId string, client *ssh.Client, stats *Stat) (err error) {
-	defer utils.TimeWatcher("getCPU")
+	defer utils.TimeWatcher("getCPU")()
 	lines, err := runRemote(client, "/bin/cat /proc/stat")
 	if err != nil {
 		return

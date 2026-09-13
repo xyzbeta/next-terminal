@@ -43,6 +43,7 @@ var defaultProperties = map[string]string{
 	"cron-log-saved-limit":             "360",
 	"login-log-saved-limit":            "360",
 	"session-saved-limit":              "360",
+	"storage-log-saved-limit":          "360",
 	"user-default-storage-size":        "5120",
 }
 

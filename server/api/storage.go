@@ -38,6 +38,13 @@ func (api StorageApi) StoragePagingEndpoint(c echo.Context) error {
 
 	for i := range items {
 		item := items[i]
+		// LimitSize <= 0 表示不限量，用量数字对用户没有意义，跳过即可。
+		// DirSize 是 filepath.Walk 全树遍历，且运行在请求路径上：一页 10~20 个
+		// 存储空间逐个遍历，1 万文件规模下单请求即 10 万次 Lstat。
+		if item.LimitSize <= 0 {
+			items[i].UsedSize = 0
+			continue
+		}
 		dirSize, err := utils.DirSize(path.Join(drivePath, item.ID))
 		if err != nil {
 			items[i].UsedSize = -1
@@ -81,14 +88,18 @@ func (api StorageApi) StorageUpdateEndpoint(c echo.Context) error {
 		return err
 	}
 
-	drivePath := service.StorageService.GetBaseDrivePath()
-	dirSize, err := utils.DirSize(path.Join(drivePath, item.ID))
-	if err != nil {
-		return err
-	}
-	if item.LimitSize > 0 && item.LimitSize < dirSize {
-		// 不能小于已使用的大小
-		return errors.New("空间大小不能小于已使用大小")
+	// DirSize 是全树遍历，只在新配额为「限量」时才需要——未限量时下面的校验不执行。
+	// 原实现在 LimitSize<=0 时仍无条件遍历整棵目录树。
+	if item.LimitSize > 0 {
+		drivePath := service.StorageService.GetBaseDrivePath()
+		dirSize, err := utils.DirSize(path.Join(drivePath, item.ID))
+		if err != nil {
+			return err
+		}
+		if item.LimitSize < dirSize {
+			// 不能小于已使用的大小
+			return errors.New("空间大小不能小于已使用大小")
+		}
 	}
 
 	storage, err := repository.StorageRepository.FindById(context.TODO(), id)

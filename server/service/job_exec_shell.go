@@ -64,6 +64,7 @@ func (r ShellJob) executeShellByAssets(assets []model.Asset) {
 	// （错误分支在接收循环启动前 send；goroutine panic 后消息数不足使接收循环挂死）
 	results := make([]string, len(assets))
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10)
 	for i := range assets {
 		asset, err := AssetService.FindByIdAndDecrypt(context.TODO(), assets[i].ID)
 		if err != nil {
@@ -101,9 +102,14 @@ func (r ShellJob) executeShellByAssets(assets []model.Asset) {
 			}
 		}
 
+		// 并发上限：原实现每个资产起一个 goroutine 且无上限，JobModeAll 下会同时
+		// 建立 N 条 SSH 连接（N = 全部 SSH 资产数），本机 FD 与目标侧一并耗尽。
+		// 取值与 job_check_asset_status.go 的巡检任务保持一致。
+		sem <- struct{}{}
 		wg.Add(1)
 		go func(i int) {
 			defer func() {
+				<-sem
 				wg.Done()
 				if err := recover(); err != nil {
 					log.Error("Shell 执行 goroutine panic", log.String("panic", fmt.Sprintf("%v", err)))
@@ -114,7 +120,7 @@ func (r ShellJob) executeShellByAssets(assets []model.Asset) {
 			elapsed := time.Since(t1)
 			var msg string
 			if err != nil {
-				if errors.Is(gorm.ErrRecordNotFound, err) {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
 					msg = fmt.Sprintf("资产「%v」Shell执行失败，请检查资产所关联接入网关是否存在，耗时「%v」", asset.Name, elapsed)
 				} else {
 					msg = fmt.Sprintf("资产「%v」Shell执行失败，错误内容为：「%v」，耗时「%v」", asset.Name, err.Error(), elapsed)
@@ -195,6 +201,12 @@ func ExecCommandBySSH(cmd, ip string, port int, username, password, privateKey, 
 	if err != nil {
 		return "", err
 	}
+	// 必须关闭 sshClient：session.Close() 只关 channel，底层 TCP 连接与其
+	// mux goroutine 仍存活。原实现只 defer session.Close()，每个资产泄漏一条
+	// 连接（100 资产/小时即 2400 条/天），容器 FD 打满后全站无法新建会话。
+	defer func() {
+		_ = sshClient.Close()
+	}()
 
 	session, err := sshClient.NewSession()
 	if err != nil {

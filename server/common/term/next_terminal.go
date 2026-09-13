@@ -6,6 +6,8 @@ import (
 	"io"
 	"sync"
 
+	"next-terminal/server/utils"
+
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -17,6 +19,11 @@ type NextTerminal struct {
 	SftpClient   *sftp.Client
 	Recorder     *Recorder
 	StdoutReader *bufio.Reader
+
+	// Keep 会话保持标记（tmux 复用，见 tmux.go）：
+	// 关闭时若为 true，CloseSessionById 会先发 tmux kill-session 真正终止远端任务；
+	// 用户主动断开/断网走的是「只关连接层」，tmux 会话保留等待重连。
+	Keep bool
 
 	sftpMutex sync.Mutex // SftpClient 懒初始化锁，防止并发创建竞态与旧 client 泄漏
 }
@@ -62,7 +69,14 @@ func newNT(sshClient *ssh.Client, pipe bool, recording string, term string, rows
 
 	var recorder *Recorder
 	if recording != "" {
-		recorder, err = NewRecorder(recording, term, rows, cols)
+		// 录屏文件已存在 → 续写（tmux 重连续录，绝不 RemoveAll 重建）；
+		// 不存在 → 新建。头损坏等异常时退回新建：旧录屏虽丢，会话可用性优先。
+		if utils.FileExists(recording) {
+			recorder, err = NewRecorderAppend(recording, term, rows, cols)
+		}
+		if recorder == nil {
+			recorder, err = NewRecorder(recording, term, rows, cols)
+		}
 		if err != nil {
 			return nil, err
 		}

@@ -11,6 +11,7 @@ import (
 
 	"next-terminal/server/branding"
 	"next-terminal/server/config"
+	"next-terminal/server/global/cache"
 	"next-terminal/server/global/security"
 	"next-terminal/server/log"
 	"next-terminal/server/repository"
@@ -37,18 +38,40 @@ func init() {
 func (sshd sshd) passwordAuth(ctx ssh.Context, pass string) bool {
 	username := ctx.User()
 	remoteAddr := strings.Split(ctx.RemoteAddr().String(), ":")[0]
-	user, err := repository.UserRepository.FindByUsername(context.TODO(), username)
 
-	if err != nil {
-		// 保存登录日志
-		_ = service.UserService.SaveLoginLog(remoteAddr, "terminal", username, false, false, "", "账号或密码不正确")
+	// 失败计数：与 Web 登录一致，避免 SSH 端口被无限爆破。
+	// 键用 socket 对端地址（非 XFF，不可伪造）+ 用户名。
+	loginFailCountKey := remoteAddr + username
+	if v, ok := cache.LoginFailedKeyManager.Get(loginFailCountKey); ok {
+		if count, _ := v.(int); count >= 5 {
+			_ = service.UserService.SaveLoginLog(remoteAddr, "terminal", username, false, false, "", "登录失败次数过多，账号已被临时锁定")
+			return false
+		}
+	}
+
+	// 统一的失败处理：累加计数 + 记日志。注意不能向调用方区分
+	// 「账号不存在」「密码错误」「账号停用」，否则可枚举用户名。
+	reject := func(reason string) bool {
+		v, _ := cache.LoginFailedKeyManager.Get(loginFailCountKey)
+		count, _ := v.(int)
+		cache.LoginFailedKeyManager.Set(loginFailCountKey, count+1, cache.LoginLockExpiration)
+		_ = service.UserService.SaveLoginLog(remoteAddr, "terminal", username, false, false, "", reason)
 		return false
 	}
 
+	user, err := repository.UserRepository.FindByUsername(context.TODO(), username)
+	if err != nil {
+		return reject("账号或密码不正确")
+	}
+
+	// 停用检查：原实现缺失，导致被停用的账号（离职、风险账号）仍可通过
+	// 内嵌 SSH 端口登录并访问其被授权的资产，使停用操作形同虚设。
+	if user.Status == nt.StatusDisabled {
+		return reject("账号已停用")
+	}
+
 	if err := utils.Encoder.Match([]byte(user.Password), []byte(pass)); err != nil {
-		// 保存登录日志
-		_ = service.UserService.SaveLoginLog(remoteAddr, "terminal", username, false, false, "", "账号或密码不正确")
-		return false
+		return reject("账号或密码不正确")
 	}
 	return true
 }

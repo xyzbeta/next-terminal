@@ -168,9 +168,16 @@ var DefaultMenu = []*model.Menu{
 	model.NewMenu("offline-session-command", "命令记录", "offline-session",
 		model.NewPermission("GET", "/sessions/:id/commands/paging"),
 	),
-	model.NewMenu("offline-session-reviewed", "标记已读", "offline-session"),       // TODO
-	model.NewMenu("offline-session-unreviewed", "标记未读", "offline-session"),     // TODO
-	model.NewMenu("offline-session-reviewed-all", "全部标记已读", "offline-session"), // TODO
+	// 审计闭环：OfflineSession 页面已接入「标记已读 / 标记未读 / 全部标记已读」入口
+	model.NewMenu("offline-session-reviewed", "标记已读", "offline-session",
+		model.NewPermission("POST", "/sessions/:id/reviewed"),
+	),
+	model.NewMenu("offline-session-unreviewed", "标记未读", "offline-session",
+		model.NewPermission("POST", "/sessions/:id/unreviewed"),
+	),
+	model.NewMenu("offline-session-reviewed-all", "全部标记已读", "offline-session",
+		model.NewPermission("POST", "/sessions/reviewed"),
+	),
 
 	model.NewMenu("log-audit", "日志审计", "root"),
 

@@ -64,7 +64,9 @@ export const groupBy = (list, fn) => {
     return groups;
 };
 
-export const cloneObj = (obj, ignoreFields) => {
+// 深拷贝。第二参数 ignoreFields 已删除：函数体从未引用它，全项目也无调用方传该参数，
+// 保留形参只会让调用方以为「可按字段排除」这一语义生效。
+export const cloneObj = (obj) => {
     let str, newObj = obj.constructor === Array ? [] : {};
     if (typeof obj !== 'object') {
         return;
@@ -182,29 +184,51 @@ export function difference(a, b) {
     return Array.from(new Set(a.concat(b).filter(v => !aSet.has(v) || !bSet.has(v))))
 }
 
+/**
+ * 请求全屏。返回是否成功发起。
+ *
+ * 修复两处历史问题：
+ *  1. 标准 API 是 requestFullscreen（小写 s），原写成 requestFullScreen（大写 S）。
+ *     该属性恒为 undefined，全靠后面 WebKit/Firefox 的前缀版（它们的拼写确实是
+ *     大写 S）兜住，因此在 Chrome/Safari 上"看起来能用"，但纯标准实现会失效。
+ *  2. 标准 API 返回 Promise，被拒绝时（例如 iPhone Safari 对非媒体元素不支持全屏）
+ *     会产生未处理的 rejection。这里吞掉，并由返回值告知调用方是否真正生效。
+ */
 export function requestFullScreen(element) {
-    // 判断各种浏览器，找到正确的方法
-    const requestMethod = element.requestFullScreen || //W3C
-        element.webkitRequestFullScreen || //FireFox
-        element.mozRequestFullScreen || //Chrome等
-        element.msRequestFullScreen; //IE11
+    const requestMethod = element.requestFullscreen ||      // 标准（小写 s）
+        element.webkitRequestFullscreen ||                   // Chrome / Safari 新前缀
+        element.webkitRequestFullScreen ||                   // 旧 WebKit 拼写
+        element.mozRequestFullScreen ||                      // Firefox
+        element.msRequestFullScreen;                         // IE11 / 旧 Edge
     if (requestMethod) {
-        requestMethod.call(element);
-    } else if (typeof window.ActiveXObject !== "undefined") { //for Internet Explorer
+        try {
+            const r = requestMethod.call(element);
+            if (r && typeof r.catch === 'function') {
+                r.catch(() => {});
+            }
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+    if (typeof window.ActiveXObject !== "undefined") { //for Internet Explorer
         const wScript = new window.ActiveXObject("WScript.Shell");
         if (wScript !== null) {
             wScript.SendKeys("{F11}");
+            return true;
         }
     }
+    return false;
 }
 
 //退出全屏 判断浏览器种类
 export function exitFull() {
     // 判断各种浏览器，找到正确的方法
-    const exitMethod = document.exitFullscreen || //W3C
-        document.mozCancelFullScreen || //FireFox
-        document.webkitExitFullscreen || //Chrome等
-        document.webkitExitFullscreen; //IE11
+    // （原实现把 webkitExitFullscreen 写了两遍、缺 msExitFullscreen，属复制粘贴遗留）
+    const exitMethod = document.exitFullscreen ||       //W3C
+        document.webkitExitFullscreen ||                //Chrome / Safari
+        document.mozCancelFullScreen ||                 //FireFox
+        document.msExitFullscreen;                      //IE11
     if (exitMethod) {
         exitMethod.call(document);
     } else if (typeof window.ActiveXObject !== "undefined") { //for Internet Explorer

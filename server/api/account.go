@@ -348,7 +348,7 @@ func (api AccountApi) AccessTokenGetEndpoint(c echo.Context) error {
 	account, _ := GetCurrentAccount(c)
 	accessToken, err := repository.AccessTokenRepository.FindByUserId(context.TODO(), account.ID)
 	if err != nil {
-		if errors.Is(gorm.ErrRecordNotFound, err) {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			accessToken = model.AccessToken{}
 		} else {
 			return err

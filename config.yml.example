@@ -8,8 +8,34 @@ mysql:
   database: next-terminal
 sqlite:
   file: './data/sqlite/next-terminal.db'
+
+# 数据加密密钥。用于加密资产/凭据的密码、私钥、passphrase。
+#
+# 【必填】留空时会回退为内置默认密钥（源码中的公开常量），等于资产凭据明文存储。
+# 一旦设定后不可随意更改——存量密文由该密钥派生，改错会导致全部凭据无法解密。
+# 需要更换时请用：./next-terminal --new-encryption-key <新密钥>
+encryption-key: ''
+
 server:
   addr: 0.0.0.0:8088
+
+  # 可信反向代理的 CIDR 列表。
+  #
+  # 留空（或不写）= 直连部署：完全忽略 X-Forwarded-For / X-Real-IP，
+  #   客户端 IP 一律取自 TCP 对端地址。服务端口直接暴露在公网或内网时用这个。
+  #
+  # 非空 = 反向代理部署：仅当直连来源落在下列网段内时才采信 XFF。
+  #   必须填写代理自身所在网段，否则所有请求的客户端 IP 都会退化为代理 IP，
+  #   导致「安全策略 IP 黑白名单」与「审计日志客户端 IP」失真。
+  # trusted-proxies:
+  #   - 10.0.0.0/8
+  #   - 172.16.0.0/12
+
+  # 允许跨站访问的来源白名单（WebSocket Origin 校验与 CORS）。
+  # 留空时仅允许同源。配了反向代理且前后端不同域时才需要填。
+  # cors-origins:
+  #   - https://nt.example.com
+
 guacd:
   hostname: 127.0.0.1
   port: 4822

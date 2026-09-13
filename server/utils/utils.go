@@ -305,12 +305,28 @@ func RunCommand(client *ssh.Client, command string) (stdout string, err error) {
 	return
 }
 
-func TimeWatcher(name string) {
+// TimeWatcherEnabled 控制 TimeWatcher 是否输出耗时，由 config.SetupConfig 依据
+// debug 配置注入（utils 不能反向 import config，会构成循环依赖）。
+var TimeWatcherEnabled bool
+
+// TimeWatcher 返回一个在调用时输出耗时的函数，正确用法是：
+//
+//	defer utils.TimeWatcher("getHostname")()
+//
+// 注意末尾的第二个括号。原实现的签名是 `func TimeWatcher(name string)`，配合
+// `defer utils.TimeWatcher("x")` 使用时，函数体要到被 defer 的那一刻（即外层函数
+// 返回时）才开始执行，`start` 记录的是返回时刻，打印出的耗时恒为 ~0——8 处调用
+// 全部是无效计时。返回闭包后计时起点才是 defer 语句求值的那一刻。
+//
+// 输出走 fmt.Printf 而非 log 包：这是开发期计时，且默认关闭，不进入生产日志。
+func TimeWatcher(name string) func() {
 	start := time.Now()
-	defer func() {
-		cost := time.Since(start)
-		fmt.Printf("%s: %v\n", name, cost)
-	}()
+	return func() {
+		if !TimeWatcherEnabled {
+			return
+		}
+		fmt.Printf("%s: %v\n", name, time.Since(start))
+	}
 }
 
 func DirSize(path string) (int64, error) {
@@ -339,24 +355,6 @@ func Utf8ToGbk(s []byte) ([]byte, error) {
 func Decimal(value float64) float64 {
 	value, _ = strconv.ParseFloat(fmt.Sprintf("%.2f", value), 64)
 	return value
-}
-
-// GetAvailablePort 获取可用端口
-func GetAvailablePort() (int, error) {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		return 0, err
-	}
-
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		return 0, err
-	}
-
-	defer func(l *net.TCPListener) {
-		_ = l.Close()
-	}(l)
-	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
 func InsertSlice(index int, new []rune, src []rune) (ns []rune) {

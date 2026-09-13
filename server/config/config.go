@@ -55,6 +55,16 @@ type Server struct {
 	Cert        string
 	Key         string
 	CorsOrigins []string
+	// TrustedProxies 是可信反向代理的 CIDR 列表（如 "10.0.0.0/8"、"172.16.0.0/12"）。
+	//
+	// 为空表示「直连部署」：完全忽略 X-Forwarded-For / X-Real-IP，客户端 IP 一律
+	// 取自 TCP 对端地址。非空表示「反代部署」：仅当直连来源落在这些网段内时，
+	// 才采信 XFF 中最左侧的地址。
+	//
+	// 这一项决定了「安全策略 IP 黑白名单」「登录失败锁定」「审计日志 IP」三者是否可信：
+	// Echo 在未显式配置 IPExtractor 时会无条件采信 XFF 请求头，任何人都能伪造。
+	// 反代部署请务必填写代理网段，否则所有请求的客户端 IP 会退化为代理 IP。
+	TrustedProxies []string
 }
 
 type Guacd struct {
@@ -142,6 +152,10 @@ func SetupConfig() (*Config, error) {
 			Addr: viper.GetString("server.addr"),
 			Cert: viper.GetString("server.cert"),
 			Key:  viper.GetString("server.key"),
+			// 注：CorsOrigins 此前只声明未赋值，导致 guacamole.go 的 WebSocket
+			// Origin 校验里 corsOrigins 恒为空、配置项形同虚设。此处补上赋值。
+			CorsOrigins:    viper.GetStringSlice("server.cors-origins"),
+			TrustedProxies: viper.GetStringSlice("server.trusted-proxies"),
 		},
 		ResetPassword:    viper.GetString("reset-password"),
 		ResetTotp:        viper.GetString("reset-totp"),
@@ -165,9 +179,19 @@ func SetupConfig() (*Config, error) {
 
 	if config.EncryptionKey == "" {
 		config.EncryptionKey = "next-terminal"
+		// 回退密钥是源码中的公开常量，任何拿到数据库文件的人都能解密全部资产凭据。
+		// 这里只告警、不改变行为——已有部署的存量密文正是用它加密的，直接拒绝启动
+		// 或改用随机密钥都会让存量数据无法解密。迁移方式见下方提示。
+		fmt.Println("[WARN] 未配置 encryption-key，正在使用内置默认密钥（公开常量），" +
+			"资产凭据等同于明文存储。请在 config.yml 中设置 encryption-key 后，" +
+			"执行 `./next-terminal --new-encryption-key <新密钥>` 重新加密存量数据。")
 	}
 	md5Sum := fmt.Sprintf("%x", md5.Sum([]byte(config.EncryptionKey)))
 	config.EncryptionPassword = []byte(md5Sum)
+
+	// 开发期计时输出（utils.TimeWatcher）随 debug 开关，默认不进入生产 stdout：
+	// 每次 /sessions/:id/stats 会产生 9 行无缓冲写，前端 5s 轮询下会持续膨胀容器日志。
+	utils.TimeWatcherEnabled = config.Debug
 
 	// 自动创建数据存放目录
 	if err := utils.MkdirP(config.Guacd.Recording); err != nil {

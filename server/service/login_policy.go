@@ -161,16 +161,32 @@ func (s loginPolicyService) checkWeekDay(policies []model.LoginPolicy) error {
 	weekday := int(now.Weekday())
 	hwc := now.Format("15:04")
 
+	// 一次取回全部启用策略的时段配置，避免在循环里逐个查询（每次登录都会走这条路径）
+	enabledIds := make([]string, 0, len(policies))
+	for _, policy := range policies {
+		if policy.Enabled {
+			enabledIds = append(enabledIds, policy.ID)
+		}
+	}
+	periodsByPolicy := make(map[string][]model.TimePeriod, len(enabledIds))
+	if len(enabledIds) > 0 {
+		allPeriods, err := repository.TimePeriodRepository.FindByLoginPolicyIdIn(context.Background(), enabledIds)
+		if err != nil {
+			return err
+		}
+		for i := range allPeriods {
+			id := allPeriods[i].LoginPolicyId
+			periodsByPolicy[id] = append(periodsByPolicy[id], allPeriods[i])
+		}
+	}
+
 	// 多策略匹配时，取优先级最高（Priority 最小）的策略的规则
 	var bestMatch *model.LoginPolicy
 	for _, policy := range policies {
 		if !policy.Enabled {
 			continue
 		}
-		timePeriods, err := repository.TimePeriodRepository.FindByLoginPolicyId(context.Background(), policy.ID)
-		if err != nil {
-			return err
-		}
+		timePeriods := periodsByPolicy[policy.ID]
 
 		matched := false
 		for _, period := range timePeriods {

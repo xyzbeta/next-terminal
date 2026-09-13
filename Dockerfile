@@ -14,6 +14,9 @@ RUN go mod tidy
 RUN sh get_arch.sh
 RUN echo "Hello, my CPU architecture is $(uname -m)"
 RUN cp -r /app/web/build /app/server/resource/
+# 剔除 sourcemap：约 30MB 的 .map 会被 //go:embed 打进二进制，并由 /static/* 匿名可下载，
+# 等于公开全部前端源码。镜像不需要它们。
+RUN find /app/server/resource/build -name '*.map' -delete
 RUN go env;CGO_ENABLED=0 GOOS=linux GOARCH=$ARCH go build -ldflags '-s -w' -o next-terminal main.go
 RUN #upx next-terminal
 

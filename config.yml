@@ -9,8 +9,17 @@ mysql:
   database: next-terminal
 sqlite:
   file: './data/sqlite/next-terminal.db'
+
+# 数据加密密钥（资产/凭据的密码、私钥、passphrase）。生产环境必须设置，
+# 留空会回退为内置默认密钥并打印告警。更换需用 --new-encryption-key 迁移。
+# encryption-key: ''
+
 server:
   addr: 0.0.0.0:8088
+  # 反代部署时填代理所在网段；直连部署留空（留空即忽略 X-Forwarded-For）
+  # trusted-proxies:
+  #   - 10.0.0.0/8
+
 guacd:
   hostname: 127.0.0.1
   port: 4822

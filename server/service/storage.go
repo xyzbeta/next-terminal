@@ -154,6 +154,45 @@ func (service storageService) GetBaseDrivePath() string {
 	return config.GlobalCfg.Guacd.Drive
 }
 
+// resolveStoragePath 把用户可控的相对路径安全地解析到指定存储空间根目录之内。
+//
+// 安全边界：rel 允许含多级子目录（如 "ops/di"），但不得逃出 base。
+//
+// 这里用「Clean 归一化后再做前缀断言」，而不是原先的字符串黑名单——
+// 后者拦不住 ".."（不含子串 "../"）、"a/../.." 等写法：path.Join 会把它们
+// 归一化到父目录，最终 RemoveAll/Rename 会作用在存储根甚至 drive 根上。
+// 同理也不能靠「结果是否以 base 开头」判断，否则 /data/drive-other 会被误放行。
+//
+// 返回路径保证等于 base，或位于 base 之下。
+func resolveStoragePath(drivePath, storageId, rel string) (string, error) {
+	base := path.Join(drivePath, storageId)
+	if rel == "" {
+		rel = "."
+	}
+	target := path.Clean(path.Join(base, rel))
+	if target == base {
+		return target, nil
+	}
+	if !strings.HasPrefix(target, base+"/") {
+		return "", errors.New("非法请求 :(")
+	}
+	return target, nil
+}
+
+// resolveStoragePathStrict 在 resolveStoragePath 之上额外拒绝解析结果等于存储根本身。
+// 用于删除、重命名、下载、写入等「作用于单个条目」的操作——它们没有理由作用在存储根上，
+// 而一旦允许，RemoveAll/Rename/ServeFile 就会以整个存储空间为对象。
+func resolveStoragePathStrict(drivePath, storageId, rel string) (string, error) {
+	target, err := resolveStoragePath(drivePath, storageId, rel)
+	if err != nil {
+		return "", err
+	}
+	if target == path.Join(drivePath, storageId) {
+		return "", errors.New("非法请求 :(")
+	}
+	return target, nil
+}
+
 func (service storageService) DeleteStorageById(c context.Context, id string, force bool) error {
 	drivePath := service.GetBaseDrivePath()
 	storage, err := repository.StorageRepository.FindById(c, id)
@@ -201,24 +240,25 @@ func (service storageService) StorageUpload(c echo.Context, file *multipart.File
 	defer src.Close()
 
 	remoteDir := c.QueryParam("dir")
-	remoteFile := path.Join(remoteDir, filename)
 
-	if strings.Contains(remoteDir, "../") {
-		return errors.New("非法请求 :(")
+	// 目标目录：允许解析到存储根本身（上传到根目录是正常操作）
+	dir, err := resolveStoragePath(drivePath, storageId, remoteDir)
+	if err != nil {
+		return err
 	}
-	if strings.Contains(remoteFile, "../") {
-		return errors.New("非法请求 :(")
-	}
-
 	// 判断文件夹不存在时自动创建
-	dir := path.Join(path.Join(drivePath, storageId), remoteDir)
 	if !utils.FileExists(dir) {
 		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 			return err
 		}
 	}
-	// Destination
-	dst, err := os.Create(path.Join(path.Join(drivePath, storageId), remoteFile))
+	// Destination：filename 虽已由 multipart 层做 Base() 清洗，此处仍按完整相对路径
+	// 再解析一次，避免清洗行为变化时直接落到存储根之外
+	dstPath, err := resolveStoragePathStrict(drivePath, storageId, path.Join(remoteDir, filename))
+	if err != nil {
+		return err
+	}
+	dst, err := os.Create(dstPath)
 	if err != nil {
 		return err
 	}
@@ -233,10 +273,10 @@ func (service storageService) StorageUpload(c echo.Context, file *multipart.File
 
 func (service storageService) StorageEdit(file string, fileContent string, storageId string) error {
 	drivePath := service.GetBaseDrivePath()
-	if strings.Contains(file, "../") {
-		return errors.New("非法请求 :(")
+	realFilePath, err := resolveStoragePathStrict(drivePath, storageId, file)
+	if err != nil {
+		return err
 	}
-	realFilePath := path.Join(path.Join(drivePath, storageId), file)
 	dstFile, err := os.OpenFile(realFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return err
@@ -254,12 +294,12 @@ func (service storageService) StorageEdit(file string, fileContent string, stora
 
 func (service storageService) StorageDownload(c echo.Context, file, storageId string) error {
 	drivePath := service.GetBaseDrivePath()
-	if strings.Contains(file, "../") {
-		return errors.New("非法请求 :(")
+	p, err := resolveStoragePathStrict(drivePath, storageId, file)
+	if err != nil {
+		return err
 	}
-	// 获取带后缀的文件名称
-	filenameWithSuffix := path.Base(file)
-	p := path.Join(path.Join(drivePath, storageId), file)
+	// 获取带后缀的文件名称（取自已解析路径，避免 file 为空时 basename 为 "."）
+	filenameWithSuffix := path.Base(p)
 	//log.Infof("download %v", p)
 	c.Response().Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filenameWithSuffix))
 	c.Response().Header().Set("Content-Type", "application/octet-stream")
@@ -270,8 +310,11 @@ func (service storageService) StorageDownload(c echo.Context, file, storageId st
 
 func (service storageService) StorageLs(remoteDir, storageId string) (error, []File) {
 	drivePath := service.GetBaseDrivePath()
-	if strings.Contains(remoteDir, "../") {
-		return errors.New("非法请求 :("), nil
+	// 列目录允许解析到存储根本身。这里只做断言，随后仍以 base + remoteDir 调用 Ls，
+	// 以保留 File.Path 的相对语义（前端依赖它做目录跳转）；
+	// Ls 内部拼接的正是同一个表达式，断言通过即等价于已校验。
+	if _, err := resolveStoragePath(drivePath, storageId, remoteDir); err != nil {
+		return err, nil
 	}
 	files, err := service.Ls(path.Join(drivePath, storageId), remoteDir)
 	if err != nil {
@@ -282,10 +325,11 @@ func (service storageService) StorageLs(remoteDir, storageId string) (error, []F
 
 func (service storageService) StorageMkDir(remoteDir, storageId string) error {
 	drivePath := service.GetBaseDrivePath()
-	if strings.Contains(remoteDir, "../") {
-		return errors.New("非法请求 :(")
+	dir, err := resolveStoragePath(drivePath, storageId, remoteDir)
+	if err != nil {
+		return err
 	}
-	if err := os.MkdirAll(path.Join(path.Join(drivePath, storageId), remoteDir), os.ModePerm); err != nil {
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return err
 	}
 	return nil
@@ -293,10 +337,13 @@ func (service storageService) StorageMkDir(remoteDir, storageId string) error {
 
 func (service storageService) StorageRm(file, storageId string) error {
 	drivePath := service.GetBaseDrivePath()
-	if strings.Contains(file, "../") {
-		return errors.New("非法请求 :(")
+	// 严格模式：删除必须作用于存储根之下的具体条目。
+	// 允许 file=".." 解析为存储根会让 RemoveAll 递归清空整个 drive 目录。
+	target, err := resolveStoragePathStrict(drivePath, storageId, file)
+	if err != nil {
+		return err
 	}
-	if err := os.RemoveAll(path.Join(path.Join(drivePath, storageId), file)); err != nil {
+	if err := os.RemoveAll(target); err != nil {
 		return err
 	}
 	return nil
@@ -304,13 +351,16 @@ func (service storageService) StorageRm(file, storageId string) error {
 
 func (service storageService) StorageRename(oldName, newName, storageId string) error {
 	drivePath := service.GetBaseDrivePath()
-	if strings.Contains(oldName, "../") {
-		return errors.New("非法请求 :(")
+	oldPath, err := resolveStoragePathStrict(drivePath, storageId, oldName)
+	if err != nil {
+		return err
 	}
-	if strings.Contains(newName, "../") {
-		return errors.New("非法请求 :(")
+	newPath, err := resolveStoragePathStrict(drivePath, storageId, newName)
+	if err != nil {
+		return err
 	}
-	if err := os.Rename(path.Join(path.Join(drivePath, storageId), oldName), path.Join(path.Join(drivePath, storageId), newName)); err != nil {
+	// Rename 会连带搬移整棵子树，故源与目标都必须是存储根之下的条目
+	if err := os.Rename(oldPath, newPath); err != nil {
 		return err
 	}
 	return nil

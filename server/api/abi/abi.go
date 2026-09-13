@@ -46,10 +46,16 @@ func (r *Abi) GetToken(c echo.Context) string {
 func (r *Abi) GetCurrentAccount(c echo.Context) (*model.User, bool) {
 	token := r.GetToken(c)
 	get, b := cache.TokenManager.Get(token)
-	if b {
-		return get.(dto.Authorization).User, true
+	if !b {
+		return nil, false
 	}
-	return nil, false
+	// 带 ok 断言：TokenManager 中若混入其它类型（如后续新增令牌种类），
+	// 裸断言会直接 panic 击穿整个请求。
+	auth, ok := get.(dto.Authorization)
+	if !ok || auth.User == nil {
+		return nil, false
+	}
+	return auth.User, true
 }
 
 func (r *Abi) HasPermission(c echo.Context, owner string) bool {

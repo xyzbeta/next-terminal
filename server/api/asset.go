@@ -203,10 +203,9 @@ func (assetApi AssetApi) AssetUpdateEndpoint(c echo.Context) error {
 func (assetApi AssetApi) AssetDeleteEndpoint(c echo.Context) error {
 	id := c.Param("id")
 	split := strings.Split(id, ",")
-	for i := range split {
-		if err := service.AssetService.DeleteById(split[i]); err != nil {
-			return err
-		}
+	// 整批一次事务，而非逐个 DeleteById（N 个资产 = N 个事务 × 3 条语句）
+	if err := service.AssetService.DeleteByIds(split); err != nil {
+		return err
 	}
 
 	return Success(c, nil)

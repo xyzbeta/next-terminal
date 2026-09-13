@@ -176,7 +176,7 @@ func (service userService) OnEvicted(token string, value interface{}) {
 	if strings.HasPrefix(token, "forever") {
 	} else {
 		err := service.LogoutByToken(token)
-		if err != nil && !errors.Is(gorm.ErrRecordNotFound, err) {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		}
 	}
 }
@@ -207,7 +207,7 @@ func (service userService) ReloadToken() error {
 		token := loginLog.ID
 		user, err := repository.UserRepository.FindByUsername(context.TODO(), loginLog.Username)
 		if err != nil {
-			if errors.Is(gorm.ErrRecordNotFound, err) {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				_ = repository.LoginLogRepository.DeleteById(context.TODO(), token)
 			}
 			continue
